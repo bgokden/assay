@@ -1,6 +1,6 @@
 """Train the LoRA adapter and evidence head with soft-target cross-entropy.
 
-    uv run python -m sezgi.train --base Qwen/Qwen3-1.7B-Base --data data/v1 --out runs/sezgi-1.7b
+    uv run python -m assay.train --base Qwen/Qwen3-1.7B-Base --data data/v1 --out runs/assay-1.7b
 
 Loss = sum over questions of CE(target, softmax(option logits)) [answerable only]
      + evidence_weight * BCE(evidence logit, answerable)
@@ -21,11 +21,11 @@ import time
 import torch
 import torch.nn.functional as F
 
-from sezgi.data.registry import sord_target
-from sezgi.encoding import Packed, collate, encode, identity_order
-from sezgi.evaluate import format_report, predict, report
-from sezgi.model import SezgiModel
-from sezgi.records import Record, read_records
+from assay.data.registry import sord_target
+from assay.encoding import Packed, collate, encode, identity_order
+from assay.evaluate import format_report, predict, report
+from assay.model import AssayModel
+from assay.records import Record, read_records
 
 
 def target_vector(lq, hard_targets: bool, score_sigma: float) -> list[float]:
@@ -41,7 +41,7 @@ def target_vector(lq, hard_targets: bool, score_sigma: float) -> list[float]:
 
 
 class TrainBatchBuilder:
-    def __init__(self, model: SezgiModel, max_state_tokens: int, hard_targets: bool, score_sigma: float, seed: int):
+    def __init__(self, model: AssayModel, max_state_tokens: int, hard_targets: bool, score_sigma: float, seed: int):
         self.model = model
         self.max_state_tokens = max_state_tokens
         self.hard_targets = hard_targets
@@ -142,7 +142,7 @@ def main() -> None:
     with open(os.path.join(args.out, "train_args.json"), "w") as f:
         json.dump(vars(args), f, indent=2)
 
-    model = SezgiModel.from_base(args.base, lora_r=args.lora_r, lora_alpha=args.lora_alpha)
+    model = AssayModel.from_base(args.base, lora_r=args.lora_r, lora_alpha=args.lora_alpha)
     causal_lm = model._causal_lm()
     if not args.no_gradient_checkpointing:
         causal_lm.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
@@ -238,7 +238,7 @@ def main() -> None:
     log.close()
 
 
-def evaluate_and_log(model: SezgiModel, dev: list[Record], log, step: int, args) -> None:
+def evaluate_and_log(model: AssayModel, dev: list[Record], log, step: int, args) -> None:
     model.eval()
     with torch.autocast("cuda", dtype=torch.bfloat16):
         scored = predict(model, dev, batch_size=16, max_state_tokens=args.max_state_tokens)

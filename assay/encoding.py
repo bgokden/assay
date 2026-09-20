@@ -19,8 +19,8 @@ from typing import Any
 import torch
 from transformers import PreTrainedTokenizerBase
 
-from sezgi.labels import LabelAlphabet
-from sezgi.schema import Question, render_state
+from assay.labels import LabelAlphabet
+from assay.schema import Question, render_state
 
 STATE_BLOCK = -1
 PAD_BLOCK = -2

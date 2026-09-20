@@ -1,9 +1,9 @@
 """Merge the adapter into the base model, write a model card and upload to the Hugging Face Hub.
 
-    uv run python -m sezgi.publish --run runs/sezgi-4b --repo Berk/sezgi-4b [--no-merge]
+    uv run python -m assay.publish --run runs/assay-4b --repo Berk/assay-4b [--no-merge]
 
 The published repository contains the merged weights (plain Qwen3 checkpoint loadable with
-transformers), the LoRA adapter, the evidence head, sezgi_config.json and the evaluation
+transformers), the LoRA adapter, the evidence head, assay_config.json and the evaluation
 results the card cites.
 """
 
@@ -17,7 +17,7 @@ import shutil
 import torch
 from huggingface_hub import HfApi
 
-from sezgi.model import CONFIG_FILE, HEAD_FILE, SezgiModel
+from assay.model import CONFIG_FILE, HEAD_FILE, AssayModel
 
 
 def metrics_row(name: str, path: str) -> str | None:
@@ -60,7 +60,7 @@ base_model: {base}
 library_name: transformers
 pipeline_tag: text-classification
 tags:
-  - sezgi
+  - assay
   - calibrated
   - decision-model
   - zero-shot-classification
@@ -76,7 +76,7 @@ Calibrated typed decisions from one forward pass. Send a state and named typed q
 get a probability distribution per question, a confidence and an evidence score. No text is
 generated, so nothing can come back off-schema.
 
-Code, server and training recipe: https://github.com/bgokden/sezgi
+Code, server and training recipe: https://github.com/bgokden/assay
 
 ## How it is built
 
@@ -90,7 +90,7 @@ Code, server and training recipe: https://github.com/bgokden/sezgi
 - Trained with cross-entropy against soft targets: human label distributions where the source
   has them, SORD-smoothed levels for ordinal questions, one-hot otherwise. Choice options are
   shuffled per example.
-- An evidence head (linear on the decision token, `sezgi_head.safetensors`) predicts whether the
+- An evidence head (linear on the decision token, `assay_head.safetensors`) predicts whether the
   state supports the question, trained on passage-swapped negatives.
 - Global temperature {temperature:.3f} fitted on the calibration split of the training tasks and
   applied unchanged everywhere else.
@@ -110,10 +110,10 @@ bins, confident errors are answers with p >= 0.9 that are wrong.
 ## Usage
 
 ```python
-from sezgi.model import SezgiModel
-from sezgi.schema import Question
+from assay.model import AssayModel
+from assay.schema import Question
 
-model = SezgiModel.from_pretrained("{repo}")
+model = AssayModel.from_pretrained("{repo}")
 answers = model.answer(
     state="My card was charged twice for order A-104.",
     questions={{
@@ -136,7 +136,7 @@ data; check calibration on your own labels before acting on thresholds.
 ## Training data
 
 Fifty-five public classification, inference, reading-comprehension and preference datasets
-rendered as typed questions with described options (see `sezgi/data/tasks.py` in the
+rendered as typed questions with described options (see `assay/data/tasks.py` in the
 repository for the full list and rubrics). Each dataset keeps its own license.
 """
     with open(out_path, "w") as f:
@@ -159,7 +159,7 @@ def main() -> None:
         shutil.rmtree(staging)
     os.makedirs(staging)
 
-    model = SezgiModel.from_pretrained(args.run, dtype=torch.bfloat16, device="cpu")
+    model = AssayModel.from_pretrained(args.run, dtype=torch.bfloat16, device="cpu")
     if not args.no_merge and hasattr(model.lm, "merge_and_unload"):
         merged = model.lm.merge_and_unload()
         merged.save_pretrained(staging, safe_serialization=True)

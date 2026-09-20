@@ -1,6 +1,6 @@
 # Research notes: calibrated typed-decision models
 
-Compiled 2026-09-20. Purpose: ground the design of our own model (working name: Sezgi)
+Compiled 2026-09-20. Purpose: ground the design of our own model (working name: Assay)
 in prior work and in what the community learned in the first days after Jev's release.
 
 ## 1. What Jev is (externally observable)

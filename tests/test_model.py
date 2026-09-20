@@ -3,18 +3,18 @@ import os
 import pytest
 import torch
 
-from sezgi.encoding import encode, identity_order
-from sezgi.model import SezgiModel
-from sezgi.schema import Question
+from assay.encoding import encode, identity_order
+from assay.model import AssayModel
+from assay.schema import Question
 
-BASE = os.environ.get("SEZGI_TEST_BASE", "Qwen/Qwen3-0.6B-Base")
+BASE = os.environ.get("ASSAY_TEST_BASE", "Qwen/Qwen3-0.6B-Base")
 
 pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a GPU")
 
 
 @pytest.fixture(scope="module")
 def model():
-    return SezgiModel.from_base(BASE, lora_r=None, dtype=torch.float32)
+    return AssayModel.from_base(BASE, lora_r=None, dtype=torch.float32)
 
 
 STATE = (
@@ -72,5 +72,5 @@ def test_option_order_does_not_change_keys(model):
 
 def test_save_and_load_roundtrip(model, tmp_path):
     model.save_pretrained(str(tmp_path))
-    assert (tmp_path / "sezgi_head.safetensors").exists()
-    assert (tmp_path / "sezgi_config.json").exists()
+    assert (tmp_path / "assay_head.safetensors").exists()
+    assert (tmp_path / "assay_config.json").exists()

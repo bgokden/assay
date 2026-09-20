@@ -182,6 +182,54 @@ wheels = [
 ]
 
 [[package]]
+name = "assay"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "accelerate" },
+    { name = "datasets" },
+    { name = "fastapi" },
+    { name = "huggingface-hub" },
+    { name = "numpy" },
+    { name = "peft" },
+    { name = "pydantic" },
+    { name = "torch" },
+    { name = "transformers" },
+    { name = "uvicorn" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "accelerate", specifier = ">=1.0" },
+    { name = "datasets", specifier = ">=3.0" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "huggingface-hub", specifier = ">=0.30" },
+    { name = "numpy", specifier = ">=2.0" },
+    { name = "peft", specifier = ">=0.15" },
+    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
+    { name = "torch", specifier = ">=2.7", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "transformers", specifier = ">=4.51" },
+    { name = "uvicorn", specifier = ">=0.30" },
+]
+provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "httpx", specifier = ">=0.28.1" }]
+
+[[package]]
 name = "attrs"
 version = "26.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1807,54 +1855,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/0d/1c/73e719955c59b8e42
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e1/e3/c164c88b2e5ce7b24d667b9bd83589cf4f3520d97cad01534cd3c4f55fdb/setuptools-81.0.0-py3-none-any.whl", hash = "sha256:fdd925d5c5d9f62e4b74b30d6dd7828ce236fd6ed998a08d81de62ce5a6310d6", size = 1062021 },
 ]
-
-[[package]]
-name = "sezgi"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "accelerate" },
-    { name = "datasets" },
-    { name = "fastapi" },
-    { name = "huggingface-hub" },
-    { name = "numpy" },
-    { name = "peft" },
-    { name = "pydantic" },
-    { name = "torch" },
-    { name = "transformers" },
-    { name = "uvicorn" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "httpx" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "accelerate", specifier = ">=1.0" },
-    { name = "datasets", specifier = ">=3.0" },
-    { name = "fastapi", specifier = ">=0.115" },
-    { name = "huggingface-hub", specifier = ">=0.30" },
-    { name = "numpy", specifier = ">=2.0" },
-    { name = "peft", specifier = ">=0.15" },
-    { name = "pydantic", specifier = ">=2.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
-    { name = "torch", specifier = ">=2.7", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "transformers", specifier = ">=4.51" },
-    { name = "uvicorn", specifier = ">=0.30" },
-]
-provides-extras = ["dev"]
-
-[package.metadata.requires-dev]
-dev = [{ name = "httpx", specifier = ">=0.28.1" }]
 
 [[package]]
 name = "shellingham"

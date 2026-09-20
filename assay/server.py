@@ -1,6 +1,6 @@
 """HTTP server: POST /v1/decide with a state and typed questions, get distributions back.
 
-    uv run python -m sezgi.server --model runs/sezgi-4b --port 8000
+    uv run python -m assay.server --model runs/assay-4b --port 8000
 
 Request:
     {"state": <str | object | list>,
@@ -22,9 +22,9 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from sezgi.encoding import encode, identity_order
-from sezgi.model import SezgiModel
-from sezgi.schema import Question
+from assay.encoding import encode, identity_order
+from assay.model import AssayModel
+from assay.schema import Question
 
 
 class DecideRequest(BaseModel):
@@ -32,8 +32,8 @@ class DecideRequest(BaseModel):
     questions: dict[str, dict[str, Any]] = Field(min_length=1)
 
 
-def create_app(model: SezgiModel, model_name: str, max_state_tokens: int = 4096) -> FastAPI:
-    app = FastAPI(title="sezgi", version="0.1.0")
+def create_app(model: AssayModel, model_name: str, max_state_tokens: int = 4096) -> FastAPI:
+    app = FastAPI(title="assay", version="0.1.0")
 
     @app.get("/v1/models")
     def models() -> dict[str, Any]:
@@ -76,7 +76,7 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--max-state-tokens", type=int, default=4096)
     args = ap.parse_args()
-    from sezgi.evaluate import load_model
+    from assay.evaluate import load_model
 
     model = load_model(args.model)
     model.eval()

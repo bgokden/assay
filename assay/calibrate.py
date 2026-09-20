@@ -1,9 +1,9 @@
 """Post-hoc temperature scaling on the calibration split of the seen tasks.
 
-    uv run python -m sezgi.calibrate --model runs/sezgi-1.7b --data data/v1/calibration.jsonl
+    uv run python -m assay.calibrate --model runs/assay-1.7b --data data/v1/calibration.jsonl
 
 Fits one temperature T minimising soft-target NLL, writes it into the model directory's
-sezgi_config.json, and reports metrics before and after. The same T is applied unchanged to
+assay_config.json, and reports metrics before and after. The same T is applied unchanged to
 unseen tasks at evaluation time, so it never sees holdout data.
 """
 
@@ -16,10 +16,10 @@ import os
 
 import numpy as np
 
-from sezgi.evaluate import format_report, load_model, predict, report
-from sezgi.metrics import Scored
-from sezgi.model import CONFIG_FILE
-from sezgi.records import read_records
+from assay.evaluate import format_report, load_model, predict, report
+from assay.metrics import Scored
+from assay.model import CONFIG_FILE
+from assay.records import read_records
 
 
 def nll_at_temperature(scored: list[Scored], temperature: float) -> float:

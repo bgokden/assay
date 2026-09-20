@@ -13,12 +13,12 @@ import torch
 from torch import nn
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedTokenizerBase
 
-from sezgi.encoding import Batch, Packed, collate, encode, identity_order
-from sezgi.labels import LabelAlphabet
-from sezgi.schema import Answer, Question, make_answer
+from assay.encoding import Batch, Packed, collate, encode, identity_order
+from assay.labels import LabelAlphabet
+from assay.schema import Answer, Question, make_answer
 
-HEAD_FILE = "sezgi_head.safetensors"
-CONFIG_FILE = "sezgi_config.json"
+HEAD_FILE = "assay_head.safetensors"
+CONFIG_FILE = "assay_config.json"
 
 
 @dataclasses.dataclass
@@ -27,7 +27,7 @@ class ModelOutput:
     evidence_logits: torch.Tensor  # (Q,)
 
 
-class SezgiModel(nn.Module):
+class AssayModel(nn.Module):
     def __init__(
         self,
         lm: nn.Module,
@@ -57,7 +57,7 @@ class SezgiModel(nn.Module):
         lora_dropout: float = 0.05,
         dtype: torch.dtype = torch.bfloat16,
         device: str = "cuda",
-    ) -> "SezgiModel":
+    ) -> "AssayModel":
         tokenizer = AutoTokenizer.from_pretrained(base_model_id)
         lm = AutoModelForCausalLM.from_pretrained(
             base_model_id, dtype=dtype, attn_implementation="sdpa"
@@ -81,9 +81,9 @@ class SezgiModel(nn.Module):
     @classmethod
     def from_pretrained(
         cls, path: str, dtype: torch.dtype = torch.bfloat16, device: str = "cuda"
-    ) -> "SezgiModel":
+    ) -> "AssayModel":
         """Load a local directory saved by `save_pretrained`, or a Hub repository published by
-        `sezgi.publish` (merged weights or base + adapter, plus the evidence head)."""
+        `assay.publish` (merged weights or base + adapter, plus the evidence head)."""
         if not os.path.isdir(path):
             from huggingface_hub import snapshot_download
 

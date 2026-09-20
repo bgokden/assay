@@ -1,21 +1,19 @@
-# Sezgi
+# Assay
 
 Calibrated typed decisions from one forward pass of a language model. No text is generated.
 
 You send a **state** (text, an object, or a list) and a set of named **typed questions**.
-Sezgi returns a probability distribution over the options of every question, a confidence,
+Assay returns a probability distribution over the options of every question, a confidence,
 and an **evidence** score that says whether the state contains what is needed to answer.
 Every question is evaluated as an isolated branch over the shared state, in a single prefill,
 so a request with twenty questions costs about the same as a request with one.
 
-*Sezgi* is Turkish for intuition: the fast, pattern-matching kind of judgement, done with
-numbers software can act on.
 
 ```python
-from sezgi.model import SezgiModel
-from sezgi.schema import Question
+from assay.model import AssayModel
+from assay.schema import Question
 
-model = SezgiModel.from_pretrained("runs/sezgi-4b")
+model = AssayModel.from_pretrained("runs/assay-4b")
 
 answers = model.answer(
     state="Hi, I've been trying to connect my Stripe account for 3 days and the integration "
@@ -88,7 +86,7 @@ Filled in from `runs/*/eval-*.json`; see the model cards on Hugging Face.
 ```bash
 uv sync
 uv run pytest                                             # unit tests (downloads Qwen3-0.6B)
-uv run python -m sezgi.server --model runs/sezgi-4b       # POST /v1/decide on :8000
+uv run python -m assay.server --model runs/assay-4b       # POST /v1/decide on :8000
 ```
 
 ```bash
@@ -104,13 +102,13 @@ curl -s localhost:8000/v1/decide -H 'content-type: application/json' -d '{
 ## Reproduce
 
 ```bash
-uv run python -m sezgi.data.build --out data/v1          # 66 public tasks -> jsonl
-scripts/run_experiment.sh Qwen/Qwen3-4B-Base runs/sezgi-4b data/v1
+uv run python -m assay.data.build --out data/v1          # 66 public tasks -> jsonl
+scripts/run_experiment.sh Qwen/Qwen3-4B-Base runs/assay-4b data/v1
 ```
 
 `data/suites/kev-transfer-v4-dev.jsonl` is the public transfer suite from
 [jaredpalmer/kev-suites](https://huggingface.co/datasets/jaredpalmer/kev-suites); none of its
-sources are in Sezgi's training data.
+sources are in Assay's training data.
 
 ## Limitations
 

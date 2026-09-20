@@ -4,9 +4,9 @@ import random
 import numpy as np
 import pytest
 
-from sezgi.calibrate import fit_temperature, rescale
-from sezgi.data.registry import sord_target
-from sezgi.metrics import Scored, auc, expected_calibration_error, summarize
+from assay.calibrate import fit_temperature, rescale
+from assay.data.registry import sord_target
+from assay.metrics import Scored, auc, expected_calibration_error, summarize
 
 
 def _softmax(x):

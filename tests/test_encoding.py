@@ -3,11 +3,11 @@ import os
 import pytest
 import torch
 
-from sezgi.encoding import PAD_BLOCK, STATE_BLOCK, build_attention_mask, collate, encode
-from sezgi.labels import LabelAlphabet
-from sezgi.schema import Question, confidence_from_probabilities, render_state
+from assay.encoding import PAD_BLOCK, STATE_BLOCK, build_attention_mask, collate, encode
+from assay.labels import LabelAlphabet
+from assay.schema import Question, confidence_from_probabilities, render_state
 
-BASE = os.environ.get("SEZGI_TEST_BASE", "Qwen/Qwen3-0.6B-Base")
+BASE = os.environ.get("ASSAY_TEST_BASE", "Qwen/Qwen3-0.6B-Base")
 
 
 def test_confidence_bounds():

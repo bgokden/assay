@@ -1,7 +1,7 @@
 """Score a model on a record file: accuracy, Brier, NLL, ECE, confident errors, per source.
 
-    uv run python -m sezgi.evaluate --model base:Qwen/Qwen3-1.7B-Base --data suite.jsonl
-    uv run python -m sezgi.evaluate --model runs/sezgi-1.7b --data suite.jsonl --out res.json
+    uv run python -m assay.evaluate --model base:Qwen/Qwen3-1.7B-Base --data suite.jsonl
+    uv run python -m assay.evaluate --model runs/assay-1.7b --data suite.jsonl --out res.json
 """
 
 from __future__ import annotations
@@ -13,20 +13,20 @@ from typing import Iterable
 
 import torch
 
-from sezgi.encoding import Packed, encode, identity_order
-from sezgi.metrics import Scored, reliability_table, summarize, summarize_by
-from sezgi.model import SezgiModel
-from sezgi.records import Record, read_records
+from assay.encoding import Packed, encode, identity_order
+from assay.metrics import Scored, reliability_table, summarize, summarize_by
+from assay.model import AssayModel
+from assay.records import Record, read_records
 
 
-def load_model(spec: str, dtype: torch.dtype = torch.bfloat16) -> SezgiModel:
+def load_model(spec: str, dtype: torch.dtype = torch.bfloat16) -> AssayModel:
     if spec.startswith("base:"):
-        return SezgiModel.from_base(spec[len("base:") :], lora_r=None, dtype=dtype)
-    return SezgiModel.from_pretrained(spec, dtype=dtype)
+        return AssayModel.from_base(spec[len("base:") :], lora_r=None, dtype=dtype)
+    return AssayModel.from_pretrained(spec, dtype=dtype)
 
 
 def predict(
-    model: SezgiModel,
+    model: AssayModel,
     records: Iterable[Record],
     batch_size: int = 16,
     max_state_tokens: int = 2048,

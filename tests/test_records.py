@@ -1,8 +1,8 @@
 import io
 import json
 
-from sezgi.records import parse_record, write_record
-from sezgi.schema import Question
+from assay.records import parse_record, write_record
+from assay.schema import Question
 
 
 def test_parse_criteria_style_record():

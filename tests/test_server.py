@@ -4,17 +4,17 @@ import pytest
 import torch
 from fastapi.testclient import TestClient
 
-from sezgi.model import SezgiModel
-from sezgi.server import create_app
+from assay.model import AssayModel
+from assay.server import create_app
 
-BASE = os.environ.get("SEZGI_TEST_BASE", "Qwen/Qwen3-0.6B-Base")
+BASE = os.environ.get("ASSAY_TEST_BASE", "Qwen/Qwen3-0.6B-Base")
 
 pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a GPU")
 
 
 @pytest.fixture(scope="module")
 def client():
-    model = SezgiModel.from_base(BASE, lora_r=None, dtype=torch.bfloat16)
+    model = AssayModel.from_base(BASE, lora_r=None, dtype=torch.bfloat16)
     model.eval()
     return TestClient(create_app(model, "test-model"))
 

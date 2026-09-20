@@ -1,6 +1,6 @@
 """Print a markdown table of every run's evaluation results.
 
-    uv run python scripts/summarize_runs.py runs/base-1.7b runs/sezgi-1.7b runs/sezgi-4b
+    uv run python scripts/summarize_runs.py runs/base-1.7b runs/assay-1.7b runs/assay-4b
 """
 
 from __future__ import annotations

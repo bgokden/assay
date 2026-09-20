@@ -29,7 +29,7 @@ import dataclasses
 import json
 from typing import Any, Iterator
 
-from sezgi.schema import Question
+from assay.schema import Question
 
 
 @dataclasses.dataclass
