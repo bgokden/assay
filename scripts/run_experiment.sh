@@ -15,7 +15,7 @@ evaluate() {  # name, data file, extra args...
   echo "$name: $(grep '^overall' "$OUT/eval-$name.txt")"
 }
 
-uv run python -m assay.train --base "$BASE" --data "$DATA" --out "$OUT" --resume "$@"
+uv run python -X faulthandler -m assay.train --base "$BASE" --data "$DATA" --out "$OUT" --resume "$@"
 uv run python -m assay.calibrate --model "$OUT" --data "$DATA/calibration.jsonl"
 
 evaluate dev "$DATA/dev.jsonl" --temperature 1.0
