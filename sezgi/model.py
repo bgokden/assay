@@ -82,13 +82,19 @@ class SezgiModel(nn.Module):
     def from_pretrained(
         cls, path: str, dtype: torch.dtype = torch.bfloat16, device: str = "cuda"
     ) -> "SezgiModel":
-        """Load a directory saved by `save_pretrained` (adapter + evidence head + config)."""
+        """Load a local directory saved by `save_pretrained`, or a Hub repository published by
+        `sezgi.publish` (merged weights or base + adapter, plus the evidence head)."""
+        if not os.path.isdir(path):
+            from huggingface_hub import snapshot_download
+
+            path = snapshot_download(path)
         with open(os.path.join(path, CONFIG_FILE)) as f:
             config = json.load(f)
         base_model_id = config["base_model_id"]
-        tokenizer = AutoTokenizer.from_pretrained(base_model_id)
+        weights_source = path if config.get("merged_from") else base_model_id
+        tokenizer = AutoTokenizer.from_pretrained(weights_source)
         lm = AutoModelForCausalLM.from_pretrained(
-            base_model_id, dtype=dtype, attn_implementation="sdpa"
+            weights_source, dtype=dtype, attn_implementation="sdpa"
         )
         if config.get("adapter"):
             from peft import PeftModel
