@@ -134,6 +134,8 @@ def main() -> None:
     ap.add_argument("--log-every", type=int, default=20)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--no-gradient-checkpointing", action="store_true")
+    ap.add_argument("--checkpoint-every", type=int, default=500)
+    ap.add_argument("--resume", action="store_true", help="continue from <out>/checkpoint if present")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
@@ -181,14 +183,22 @@ def main() -> None:
     log = open(log_path, "a")
     step = 0
     update = 0
+    checkpoint_dir = os.path.join(args.out, "checkpoint")
+    if args.resume and os.path.exists(os.path.join(checkpoint_dir, "state.pt")):
+        step, update = load_checkpoint(checkpoint_dir, model, optimizer, scheduler)
+        print(f"resumed from step {step} (update {update})")
     t0 = time.time()
     running = {"loss": 0.0, "answer": 0.0, "evidence": 0.0, "n": 0}
     epochs_int = math.ceil(args.epochs)
     max_steps = int(steps_per_epoch * args.epochs)
     done = False
+    seen = 0
     for epoch in range(epochs_int):
         batches = bucket_batches(records, args.batch_size, rng, approx_length)
         for batch_records in batches:
+            if seen < step:
+                seen += 1
+                continue
             if step >= max_steps:
                 done = True
                 break
@@ -201,6 +211,7 @@ def main() -> None:
             loss, answer_loss, evidence_loss = compute_loss(out, target, answerable, args.evidence_weight)
             (loss / args.grad_accum).backward()
             step += 1
+            seen += 1
             running["loss"] += loss.item()
             running["answer"] += answer_loss.item()
             running["evidence"] += evidence_loss.item()
@@ -230,12 +241,55 @@ def main() -> None:
             if args.eval_every and step % args.eval_every == 0:
                 evaluate_and_log(model, dev, log, step, args)
                 model.train()
+            if args.checkpoint_every and step % args.checkpoint_every == 0 and step % args.grad_accum == 0:
+                save_checkpoint(checkpoint_dir, model, optimizer, scheduler, step, update)
         if done:
             break
     model.save_pretrained(args.out)
     print(f"saved to {args.out} after {step} steps, {time.time() - t0:.0f}s")
     evaluate_and_log(model, dev, log, step, args)
     log.close()
+
+
+def trainable_state(model: AssayModel) -> dict[str, torch.Tensor]:
+    state = {f"lm.{n}": p.detach().cpu() for n, p in model.lm.named_parameters() if p.requires_grad}
+    state.update({f"evidence_head.{k}": v.detach().cpu() for k, v in model.evidence_head.state_dict().items()})
+    return state
+
+
+def save_checkpoint(path: str, model: AssayModel, optimizer, scheduler, step: int, update: int) -> None:
+    os.makedirs(path, exist_ok=True)
+    tmp = os.path.join(path, "state.pt.tmp")
+    torch.save(
+        {
+            "params": trainable_state(model),
+            "optimizer": optimizer.state_dict(),
+            "scheduler": scheduler.state_dict(),
+            "step": step,
+            "update": update,
+            "torch_rng": torch.get_rng_state(),
+            "cuda_rng": torch.cuda.get_rng_state(),
+        },
+        tmp,
+    )
+    os.replace(tmp, os.path.join(path, "state.pt"))
+
+
+def load_checkpoint(path: str, model: AssayModel, optimizer, scheduler) -> tuple[int, int]:
+    state = torch.load(os.path.join(path, "state.pt"), map_location="cpu", weights_only=False)
+    params = dict(model.lm.named_parameters())
+    head = model.evidence_head.state_dict()
+    with torch.no_grad():
+        for name, value in state["params"].items():
+            if name.startswith("lm."):
+                params[name[3:]].copy_(value)
+            else:
+                head[name[len("evidence_head.") :]].copy_(value)
+    optimizer.load_state_dict(state["optimizer"])
+    scheduler.load_state_dict(state["scheduler"])
+    torch.set_rng_state(state["torch_rng"])
+    torch.cuda.set_rng_state(state["cuda_rng"])
+    return state["step"], state["update"]
 
 
 def evaluate_and_log(model: AssayModel, dev: list[Record], log, step: int, args) -> None:
