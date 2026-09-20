@@ -41,3 +41,8 @@ torch = { index = "pytorch-cu128" }
 
 [tool.ruff]
 line-length = 100
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+]
