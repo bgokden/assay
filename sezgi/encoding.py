@@ -63,6 +63,10 @@ def render_question(question: Question, alphabet: LabelAlphabet, order: list[int
     """Text of one question block. `order` lists canonical option indices in display order."""
     lines = [f"\nQuestion: {question.instructions.strip()}"]
     if question.type == "noul":
+        if question.yes is not None:
+            lines.append(f"yes: {question.yes.strip()}")
+        if question.no is not None:
+            lines.append(f"no: {question.no.strip()}")
         lines.append("Answer (yes or no):")
         return "\n".join(lines)
     if question.type == "choice":

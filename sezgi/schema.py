@@ -23,12 +23,15 @@ class Question:
     instructions: the question in plain language, may reference state fields.
     options: choice only, ordered mapping option key -> description (description may be None).
     levels: score only, ordered level descriptions from lowest to highest.
+    yes, no: noul only, optional descriptions of what makes the answer yes or no.
     """
 
     type: str
     instructions: str
     options: dict[str, str | None] | None = None
     levels: list[str] | None = None
+    yes: str | None = None
+    no: str | None = None
 
     def __post_init__(self) -> None:
         if self.type not in ("noul", "choice", "score"):
@@ -52,6 +55,8 @@ class Question:
         else:
             if self.options is not None or self.levels is not None:
                 raise ValueError("noul takes neither options nor levels")
+        if self.type != "noul" and (self.yes is not None or self.no is not None):
+            raise ValueError("yes/no descriptions apply to noul only")
 
     @property
     def keys(self) -> list[str]:
@@ -72,6 +77,8 @@ class Question:
             instructions=d["instructions"],
             options=options,
             levels=d.get("levels"),
+            yes=d.get("yes"),
+            no=d.get("no"),
         )
 
 
