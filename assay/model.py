@@ -94,10 +94,6 @@ class AssayModel(nn.Module):
         if lora_r is not None:
             from peft import LoraConfig, get_peft_model
 
-            if quantization is not None:
-                from peft import prepare_model_for_kbit_training
-
-                lm = prepare_model_for_kbit_training(lm, use_gradient_checkpointing=False)
             config = LoraConfig(
                 r=lora_r,
                 lora_alpha=lora_alpha,

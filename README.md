@@ -76,7 +76,8 @@ distribution, 1 for a one-hot. Option descriptions are free text; write them as 
 5. **One global temperature** fitted on a calibration split of the training tasks and applied
    unchanged to unseen tasks.
 
-See `docs/research.md` for the literature and the community landscape this builds on.
+See `docs/research.md` for the literature and the community landscape this builds on, and
+`docs/roadmap.md` for what comes next and why.
 
 ## Results
 
