@@ -80,10 +80,17 @@ def main() -> None:
     ap.add_argument("--model", required=True, help="saved model directory")
     ap.add_argument("--data", required=True, help="calibration.jsonl")
     ap.add_argument("--batch-size", type=int, default=16)
+    ap.add_argument("--max-state-tokens", type=int, default=2048)
     args = ap.parse_args()
     model = load_model(args.model)
     records = list(read_records(args.data))
-    scored = predict(model, records, batch_size=args.batch_size, temperature=1.0)
+    scored = predict(
+        model,
+        records,
+        batch_size=args.batch_size,
+        max_state_tokens=args.max_state_tokens,
+        temperature=1.0,
+    )
     write_scored(os.path.join(args.model, CALIBRATION_SCORED), scored)
     before = report(scored)
     temperature = fit_temperature(scored)

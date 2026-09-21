@@ -107,10 +107,12 @@ say"; this says "the model does not know". Costs nothing at inference.
   run question suffixes as a batch) so packed multi-question requests work on Qwen3.5/3.8.
 - Latency and throughput benchmark per tier, including CPU for the compiled tier.
 - Second seed for the soft-versus-hard target ablation.
-- Known issue: sporadic native segfaults on the RTX 5090 during long QLoRA runs on the
-  hybrid backbone (surfacing at CUDA sync points; suspects are the Triton linear-attention
-  or 4-bit kernels). Checkpoint plus automatic resume covers it; diagnose with
-  `CUDA_LAUNCH_BLOCKING=1` if it becomes frequent.
+- Known issue, resolved 2026-09-22: the sporadic native segfaults during long GPU runs were
+  not the Triton or 4-bit kernels. Every one of them (14 in 24 hours, including four in 25
+  minutes of plain-SDPA encoder training) faults at the same `libcuda.so` instruction and
+  always on CPU core 6 of this 24-core machine, which points at that core. GPU jobs now run
+  with `CPUAffinity=0-5,7-23` (systemd) or `taskset -c 0-5,7-23`; checkpoint plus resume
+  stays on in every trainer.
 
 ## Evaluation rules that apply to all of the above
 
