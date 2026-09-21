@@ -91,7 +91,7 @@ head and model card in each repository). Cells are accuracy / Brier / ECE, singl
 | Qwen3-1.7B-Base, untrained | 0.542 / 0.551 / 0.077 | 0.623 / 0.456 / 0.070 | 0.588 / 0.495 / 0.116 |
 | **assay-1.7b** | 0.740 / 0.355 / 0.035 | 0.752 / 0.334 / 0.024 | 0.670 / 0.436 / 0.115 |
 | Qwen3-4B-Base, untrained | 0.640 / 0.452 / 0.032 | 0.740 / 0.356 / 0.042 | 0.707 / 0.383 / 0.051 |
-| **assay-4b** | 0.776 / 0.304 / 0.037 | 0.798 / 0.280 / 0.021 | 0.770 / 0.307 / 0.067 |
+| **assay-4b** (data v4) | 0.791 / 0.287 / 0.027 | 0.803 / 0.271 / 0.023 | 0.784 / 0.302 / 0.061 |
 | Qwen3.8-27B (4-bit), untrained | - | 0.773 / 0.312 / 0.060 | 0.793 / 0.318 / 0.077 |
 | **assay-27b** | 0.834 / 0.243 / 0.040 | 0.842 / 0.221 / 0.040 | **0.842 / 0.229 / 0.041** |
 
@@ -101,10 +101,13 @@ never trained on. The transfer suite is public and its sources are excluded from
 reference, its authors report Kev-8B at 0.774 / 0.339 and Jev at 0.857 / 0.211 on the same
 items (their Brier definition may differ from ours).
 
-What the training changed on the transfer suite for the 4B, untrained -> trained: MMLU 0.647 ->
-0.707, policy composition families 0.34-0.66 -> 0.75-0.84, authorization 1.00 -> 1.00 (Brier
-0.07 -> 0.00), deadline 0.30 -> 0.60, QNLI 0.89 -> 0.90, tweet offensive 0.68 -> 0.70, emotion
-0.57 -> 0.60, SciQ 0.95 -> 0.94, PAWS 0.76 -> 0.73 (the one regression, with confident errors).
+What the training changed on the transfer suite for the 4B, untrained -> trained (data v4):
+policy composition families 0.34-0.66 -> 0.75-0.88, deadline 0.30 -> 0.975, authorization
+1.00 -> 1.00 (Brier 0.07 -> 0.00), MMLU 0.647 -> 0.690, QNLI 0.89 -> 0.90, tweet offensive
+0.68 -> 0.70, SciQ 0.95 -> 0.95, emotion 0.57 -> 0.55, PAWS 0.76 -> 0.74. Dates and rules come
+from two exact-label synthetic generators of our own (`assay.data.dates`, `assay.data.policy`);
+40k extra examples soft-labelled by the 27B did not move unseen tasks and were dropped
+(see `docs/roadmap.md`).
 
 **Soft versus hard targets** (1.7B, same data and seed): soft targets lower raw ECE on unseen
 tasks from 0.060 to 0.047 and confident errors from 7.7% to 6.5% on the transfer suite, but
@@ -143,7 +146,10 @@ curl -s localhost:8000/v1/decide -H 'content-type: application/json' -d '{
 
 ```bash
 uv run python -m assay.data.build --out data/v2          # 66 public tasks + policy cases -> jsonl
-scripts/run_experiment.sh Qwen/Qwen3-4B-Base runs/assay-4b data/v2 --checkpoint-every 500
+uv run python -m assay.data.distill --teacher runs/assay-27b --train data/v2/train.jsonl \
+  --out data/distill --generic 0                          # hard policy and date generators
+cat data/v2/train.jsonl data/distill/policy_hard.jsonl data/distill/dates.jsonl > data/v4/train.jsonl
+scripts/run_experiment.sh Qwen/Qwen3-4B-Base runs/assay-4b data/v4 --checkpoint-every 500
 uv run python -m assay.publish --run runs/assay-4b --repo <user>/assay-4b
 ```
 

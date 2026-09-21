@@ -8,7 +8,8 @@ Each item names the evidence behind it, the expected gain, and what would make u
 | model | seen tasks (dev) | unseen tasks (holdout) | public transfer suite |
 |---|---|---|---|
 | assay-1.7b | 0.740 / 0.355 / 0.035 | 0.752 / 0.334 / 0.024 | 0.670 / 0.436 / 0.115 |
-| assay-4b | 0.776 / 0.304 / 0.037 | 0.798 / 0.280 / 0.021 | 0.770 / 0.307 / 0.067 |
+| assay-4b (data v2) | 0.776 / 0.304 / 0.037 | 0.798 / 0.280 / 0.021 | 0.770 / 0.307 / 0.067 |
+| assay-4b (data v4, published) | 0.791 / 0.287 / 0.027 | 0.803 / 0.271 / 0.023 | 0.784 / 0.302 / 0.061 |
 | assay-27b (QLoRA on Qwen3.8-27B) | 0.834 / 0.243 / 0.040 | 0.842 / 0.221 / 0.040 | 0.842 / 0.229 / 0.041 |
 | Jev (third-party run) | - | - | 0.857 / 0.211 / - |
 
@@ -51,7 +52,9 @@ teacher-labelled generic data moved nothing on unseen tasks and drifted knowledg
 families slightly down. Conclusion: at 4B the generic tasks are capacity-limited; targeted
 skill families with exact labels are the lever. Kept: `assay.data.policy` (hard mode) and
 `assay.data.dates`. Dropped: generic teacher labels for decoder training (they may still
-serve the compiled-function tier, which is data-limited by construction).
+serve the compiled-function tier, which is data-limited by construction). A 4B retrained on
+v2 plus the two generators only (data v4) gains on both splits: holdout 0.803 / 0.271 / 0.023,
+transfer 0.784 / 0.302 / 0.061, deadline 0.975; it replaced the published assay-4b.
 
 The 27B labels about 100k new inputs with its temperature-scaled probabilities: harder policy
 cases (deeper rule nesting, more predicate types), date cases (varied formats, thresholds),
