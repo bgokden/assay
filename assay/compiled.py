@@ -136,7 +136,7 @@ class CompiledModel(nn.Module):
                     "slots": self.slots.shape[0],
                     "heads": self.attn.num_heads,
                     "temperature": self.temperature,
-                    "arch": "cross" if type(self).__name__ == "CrossEncoderModel" else "compiled",
+                    "arch": arch_name(self),
                 },
                 f,
                 indent=2,
@@ -171,7 +171,13 @@ class CompiledModel(nn.Module):
         """Returns queries (B, M, d), option vectors (B, K_max, d) and a validity mask (B, K_max).
         Each distinct text is encoded once per batch: records that share a question share
         its compiled parameters."""
+        options, valid = self.compile_options(questions)
         q_vec = self.encode_unique([q.instructions.strip() for q in questions])  # (B, d)
+        queries = self.slots.unsqueeze(0) + self.query_proj(q_vec).unsqueeze(1)  # (B, M, d)
+        return queries, options, valid
+
+    def compile_options(self, questions: list[Question]) -> tuple[torch.Tensor, torch.Tensor]:
+        """Option vectors (B, K_max, d) and a validity mask (B, K_max)."""
         flat: list[str] = []
         counts: list[int] = []
         for q in questions:
@@ -187,8 +193,7 @@ class CompiledModel(nn.Module):
             options[i, :k] = opt_vec[start : start + k]
             valid[i, :k] = True
             start += k
-        queries = self.slots.unsqueeze(0) + self.query_proj(q_vec).unsqueeze(1)  # (B, M, d)
-        return queries, options, valid
+        return options, valid
 
     # --- decision --------------------------------------------------------------------------
 
@@ -310,13 +315,52 @@ class CrossEncoderModel(CompiledModel):
         }
 
 
+class ConditionedModel(CompiledModel):
+    """Middle tier: the state is encoded once per question with the instruction in front, so
+    the encoder's own attention relates question and state; the reader's slots then read the
+    joint sequence, and options are compiled separately and scored by content. One encoder
+    pass per (state, question) rather than per state (compiled) or per option (cross)."""
+
+    def forward(self, states: list[Any], questions: list[Question]):
+        sep = self.tokenizer.sep_token or " | "
+        texts = [
+            f"{q.instructions.strip()}{sep}{render_state(s)}" for s, q in zip(states, questions)
+        ]
+        hidden, mask = self.encode_tokens(texts, self.max_state_tokens + self.max_option_tokens)
+        options, valid = self.compile_options(questions)
+        queries = self.slots.unsqueeze(0).expand(len(questions), -1, -1)
+        return self.decide(hidden, mask, queries, options, valid)
+
+    @torch.no_grad()
+    def answer(self, state: Any, questions: dict[str, Question]) -> dict[str, Answer]:
+        names = list(questions)
+        qs = [questions[n] for n in names]
+        logits, evidence = self.forward([state] * len(qs), qs)
+        probs = torch.softmax(logits / self.temperature, dim=-1)
+        ev = torch.sigmoid(evidence)
+        return {
+            n: make_answer(q, probs[i, : len(q.keys)].tolist(), ev[i].item())
+            for i, (n, q) in enumerate(zip(names, qs))
+        }
+
+
+ARCHITECTURES: dict[str, type[CompiledModel]] = {
+    "compiled": CompiledModel,
+    "conditioned": ConditionedModel,
+    "cross": CrossEncoderModel,
+}
+
+
+def arch_name(model: CompiledModel) -> str:
+    return next(name for name, cls in ARCHITECTURES.items() if type(model) is cls)
+
+
 def load_any(path: str, device: str = "cuda") -> CompiledModel:
-    """Load a compiled or cross-encoder model saved by either class."""
+    """Load a model saved by any of the encoder-tier classes."""
     if not os.path.isdir(path):
         from huggingface_hub import snapshot_download
 
         path = snapshot_download(path)
     with open(os.path.join(path, CONFIG_FILE)) as f:
         arch = json.load(f).get("arch", "compiled")
-    cls = CrossEncoderModel if arch == "cross" else CompiledModel
-    return cls.from_pretrained(path, device=device)
+    return ARCHITECTURES[arch].from_pretrained(path, device=device)

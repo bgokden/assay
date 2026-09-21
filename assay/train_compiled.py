@@ -21,7 +21,7 @@ import torch
 import torch.nn.functional as F
 
 from assay.calibrate import CALIBRATION_SCORED, fit_temperature, rescale
-from assay.compiled import CompiledModel, CrossEncoderModel
+from assay.compiled import ARCHITECTURES, CompiledModel
 from assay.evaluate import format_report, report
 from assay.metrics import Scored, write_scored
 from assay.records import Record, read_records
@@ -212,23 +212,22 @@ def main() -> None:
         action="store_true",
         help="evaluate the untrained cosine baseline and exit",
     )
-    ap.add_argument("--arch", choices=["compiled", "cross"], default="compiled")
+    ap.add_argument("--arch", choices=sorted(ARCHITECTURES), default="compiled")
     ap.add_argument(
         "--pair-budget", type=int, help="max options per batch (default 256 compiled, 64 cross)"
     )
     ap.add_argument("--checkpoint-every", type=int, default=500)
     args = ap.parse_args()
     if args.pair_budget is None:
-        args.pair_budget = 64 if args.arch == "cross" else 256
+        args.pair_budget = {"cross": 64, "conditioned": 256, "compiled": 256}[args.arch]
 
     torch.manual_seed(args.seed)
     os.makedirs(args.out, exist_ok=True)
     with open(os.path.join(args.out, "train_args.json"), "w") as f:
         json.dump(vars(args), f, indent=2)
-    cls = CrossEncoderModel if args.arch == "cross" else CompiledModel
-    model = cls.from_encoder(args.encoder, slots=args.slots)
+    model = ARCHITECTURES[args.arch].from_encoder(args.encoder, slots=args.slots)
     model.max_state_tokens = args.max_state_tokens
-    if args.arch == "cross":
+    if args.arch != "compiled":
         model.encoder.gradient_checkpointing_enable()
 
     if args.zero_shot_only:

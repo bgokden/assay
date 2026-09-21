@@ -106,3 +106,17 @@ def test_make_batches_respects_budget():
         [2, 3],
         [4],
     ]
+
+
+def test_conditioned_forward_and_roundtrip(tmp_path):
+    from assay.compiled import ConditionedModel
+
+    m = ConditionedModel.from_encoder(ENCODER, device=DEVICE)
+    m.eval()
+    logits, evidence = m([STATE, STATE], [TEAM, REFUND])
+    assert logits.shape == (2, 3) and evidence.shape == (2,)
+    assert torch.isinf(logits[1, 2])
+    answers = m.answer(STATE, {"team": TEAM, "anger": ANGER})
+    assert abs(sum(answers["team"].probabilities.values()) - 1.0) < 1e-4
+    m.save_pretrained(str(tmp_path))
+    assert isinstance(load_any(str(tmp_path), device=DEVICE), ConditionedModel)
