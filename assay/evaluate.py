@@ -14,7 +14,7 @@ from collections.abc import Iterable
 import torch
 
 from assay.encoding import Packed, encode, identity_order
-from assay.metrics import Scored, reliability_table, summarize, summarize_by
+from assay.metrics import Scored, reliability_table, summarize, summarize_by, write_scored
 from assay.model import AssayModel
 from assay.records import Record, read_records
 
@@ -89,6 +89,12 @@ def predict(
     return scored
 
 
+def scored_path(report_path: str) -> str:
+    """Per-item predictions live next to a report: eval-x.json -> eval-x.scored.jsonl."""
+    base = report_path.removesuffix(".json")
+    return base + ".scored.jsonl"
+
+
 def report(scored: list[Scored]) -> dict:
     import numpy as np
 
@@ -161,6 +167,7 @@ def main() -> None:
     if args.out:
         with open(args.out, "w") as f:
             json.dump(rep, f, indent=2)
+        write_scored(scored_path(args.out), scored)
 
 
 if __name__ == "__main__":

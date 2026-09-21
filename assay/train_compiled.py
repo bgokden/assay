@@ -20,10 +20,10 @@ import time
 import torch
 import torch.nn.functional as F
 
-from assay.calibrate import fit_temperature, rescale
+from assay.calibrate import CALIBRATION_SCORED, fit_temperature, rescale
 from assay.compiled import CompiledModel, CrossEncoderModel
 from assay.evaluate import format_report, report
-from assay.metrics import Scored
+from assay.metrics import Scored, write_scored
 from assay.records import Record, read_records
 from assay.train import target_vector
 
@@ -128,6 +128,7 @@ def evaluate_split(
     rep = report(scored)
     with open(os.path.join(out_dir, f"eval-{name}.json"), "w") as f:
         json.dump(rep, f, indent=2)
+    write_scored(os.path.join(out_dir, f"eval-{name}.scored.jsonl"), scored)
     o = rep["overall"]
     print(
         f"{name}: acc={o['accuracy']:.3f} brier={o['brier']:.3f} nll={o['nll']:.3f} ece={o['ece']:.3f} conf_err={o['confident_error_rate']:.3f}",
@@ -164,11 +165,11 @@ def main() -> None:
     )
     ap.add_argument("--arch", choices=["compiled", "cross"], default="compiled")
     ap.add_argument(
-        "--pair-budget", type=int, help="max options per batch (default 512 compiled, 64 cross)"
+        "--pair-budget", type=int, help="max options per batch (default 256 compiled, 64 cross)"
     )
     args = ap.parse_args()
     if args.pair_budget is None:
-        args.pair_budget = 64 if args.arch == "cross" else 512
+        args.pair_budget = 64 if args.arch == "cross" else 256
 
     torch.manual_seed(args.seed)
     rng = random.Random(args.seed)
@@ -290,6 +291,7 @@ def main() -> None:
     scored = predict(
         model, cal, batch_size=args.batch_size, temperature=1.0, pair_budget=args.pair_budget
     )
+    write_scored(os.path.join(args.out, CALIBRATION_SCORED), scored)
     temperature = fit_temperature(scored)
     model.temperature = temperature
     before, after = report(scored)["overall"], report(rescale(scored, temperature))["overall"]

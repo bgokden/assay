@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import collections
+import itertools
+import json
 import math
 from collections.abc import Iterable
 from typing import Any
@@ -23,7 +25,7 @@ def expected_calibration_error(
     edges = np.linspace(0.0, 1.0, bins + 1)
     ece = 0.0
     n = len(confidences)
-    for lo, hi in zip(edges[:-1], edges[1:]):
+    for lo, hi in itertools.pairwise(edges):
         mask = (confidences > lo) & (confidences <= hi)
         if lo == 0.0:
             mask |= confidences == 0.0
@@ -37,7 +39,7 @@ def reliability_table(
 ) -> list[dict[str, float]]:
     edges = np.linspace(0.0, 1.0, bins + 1)
     rows = []
-    for lo, hi in zip(edges[:-1], edges[1:]):
+    for lo, hi in itertools.pairwise(edges):
         mask = (confidences > lo) & (confidences <= hi)
         if lo == 0.0:
             mask |= confidences == 0.0
@@ -74,6 +76,31 @@ class Scored:
         self.source = source
         self.answerable = answerable
         self.evidence = evidence
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "probs": [round(float(p), 6) for p in self.probs],
+            "target": [round(float(t), 6) for t in self.target],
+            "label_index": self.label_index,
+            "qtype": self.qtype,
+            "source": self.source,
+            "answerable": self.answerable,
+            "evidence": round(float(self.evidence), 6),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Scored:
+        return cls(d["probs"], d["target"], d["label_index"], d["qtype"], d["source"], d["answerable"], d["evidence"])
+
+
+def write_scored(path: str, scored: Iterable[Scored]) -> None:
+    with open(path, "w") as f:
+        f.writelines(json.dumps(s.to_dict()) + "\n" for s in scored)
+
+
+def read_scored(path: str) -> list[Scored]:
+    with open(path) as f:
+        return [Scored.from_dict(json.loads(line)) for line in f]
 
 
 def summarize(items: Iterable[Scored], bins: int = 15) -> dict[str, Any]:

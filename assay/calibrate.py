@@ -17,9 +17,11 @@ import os
 import numpy as np
 
 from assay.evaluate import format_report, load_model, predict, report
-from assay.metrics import Scored
+from assay.metrics import Scored, write_scored
 from assay.model import CONFIG_FILE
 from assay.records import read_records
+
+CALIBRATION_SCORED = "calibration.scored.jsonl"
 
 
 def nll_at_temperature(scored: list[Scored], temperature: float) -> float:
@@ -82,6 +84,7 @@ def main() -> None:
     model = load_model(args.model)
     records = list(read_records(args.data))
     scored = predict(model, records, batch_size=args.batch_size, temperature=1.0)
+    write_scored(os.path.join(args.model, CALIBRATION_SCORED), scored)
     before = report(scored)
     temperature = fit_temperature(scored)
     after = report(rescale(scored, temperature))

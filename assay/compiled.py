@@ -155,25 +155,30 @@ class CompiledModel(nn.Module):
         hidden = self.encoder(**batch).last_hidden_state
         return hidden, batch["attention_mask"]
 
+    def encode_unique(self, texts: list[str]) -> torch.Tensor:
+        """Mean-pooled vectors for texts, encoding each distinct text once."""
+        unique = list(dict.fromkeys(texts))
+        index = {t: i for i, t in enumerate(unique)}
+        vecs = mean_pool(*self.encode_tokens(unique, self.max_option_tokens))
+        return vecs[torch.tensor([index[t] for t in texts], device=vecs.device)]
+
     def encode_states(self, states: list[Any]) -> tuple[torch.Tensor, torch.Tensor]:
         return self.encode_tokens([render_state(s) for s in states], self.max_state_tokens)
 
     def compile_batch(
         self, questions: list[Question]
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Returns queries (B, M, d), option vectors (B, K_max, d) and a validity mask (B, K_max)."""
-        ins_hidden, ins_mask = self.encode_tokens(
-            [q.instructions.strip() for q in questions], self.max_option_tokens
-        )
-        q_vec = mean_pool(ins_hidden, ins_mask)  # (B, d)
+        """Returns queries (B, M, d), option vectors (B, K_max, d) and a validity mask (B, K_max).
+        Each distinct text is encoded once per batch: records that share a question share
+        its compiled parameters."""
+        q_vec = self.encode_unique([q.instructions.strip() for q in questions])  # (B, d)
         flat: list[str] = []
         counts: list[int] = []
         for q in questions:
             texts = option_texts(q)
             flat.extend(texts)
             counts.append(len(texts))
-        opt_hidden, opt_mask = self.encode_tokens(flat, self.max_option_tokens)
-        opt_vec = mean_pool(opt_hidden, opt_mask)  # (sum K, d)
+        opt_vec = self.encode_unique(flat)  # (sum K, d)
         k_max = max(counts)
         options = opt_vec.new_zeros((len(questions), k_max, self.d))
         valid = torch.zeros((len(questions), k_max), dtype=torch.bool, device=opt_vec.device)
