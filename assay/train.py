@@ -136,6 +136,8 @@ def main() -> None:
     ap.add_argument("--no-gradient-checkpointing", action="store_true")
     ap.add_argument("--checkpoint-every", type=int, default=500)
     ap.add_argument("--resume", action="store_true", help="continue from <out>/checkpoint if present")
+    ap.add_argument("--quant", choices=["8bit", "4bit"], help="quantize the frozen base (QLoRA)")
+    ap.add_argument("--eval-batch-size", type=int, default=16)
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
@@ -144,7 +146,7 @@ def main() -> None:
     with open(os.path.join(args.out, "train_args.json"), "w") as f:
         json.dump(vars(args), f, indent=2)
 
-    model = AssayModel.from_base(args.base, lora_r=args.lora_r, lora_alpha=args.lora_alpha)
+    model = AssayModel.from_base(args.base, lora_r=args.lora_r, lora_alpha=args.lora_alpha, quantization=args.quant)
     causal_lm = model._causal_lm()
     if not args.no_gradient_checkpointing:
         causal_lm.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
@@ -296,8 +298,9 @@ def load_checkpoint(path: str, model: AssayModel, optimizer, scheduler) -> tuple
 
 def evaluate_and_log(model: AssayModel, dev: list[Record], log, step: int, args) -> None:
     model.eval()
+    torch.cuda.empty_cache()
     with torch.autocast("cuda", dtype=torch.bfloat16):
-        scored = predict(model, dev, batch_size=16, max_state_tokens=args.max_state_tokens)
+        scored = predict(model, dev, batch_size=args.eval_batch_size, max_state_tokens=args.max_state_tokens)
     rep = report(scored)
     print(f"--- dev at step {step} ---")
     print(format_report(rep))

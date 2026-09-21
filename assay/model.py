@@ -34,11 +34,17 @@ class AssayModel(nn.Module):
         tokenizer: PreTrainedTokenizerBase,
         base_model_id: str,
         temperature: float = 1.0,
+        normalize_evidence_input: bool = True,
+        quantized_base: str | None = None,
     ) -> None:
         super().__init__()
         self.lm = lm
         self.tokenizer = tokenizer
         self.base_model_id = base_model_id
+        self.quantized_base = quantized_base  # "4bit"/"8bit" when trained as QLoRA
+        # layer-normalise the decision vector before the evidence head so the head's scale
+        # does not depend on the backbone's hidden-state norm (older models were saved without)
+        self.normalize_evidence_input = normalize_evidence_input
         self.alphabet = LabelAlphabet(tokenizer)
         config = self._backbone().config
         hidden = config.hidden_size
@@ -88,6 +94,10 @@ class AssayModel(nn.Module):
         if lora_r is not None:
             from peft import LoraConfig, get_peft_model
 
+            if quantization is not None:
+                from peft import prepare_model_for_kbit_training
+
+                lm = prepare_model_for_kbit_training(lm, use_gradient_checkpointing=False)
             config = LoraConfig(
                 r=lora_r,
                 lora_alpha=lora_alpha,
@@ -97,7 +107,7 @@ class AssayModel(nn.Module):
                 task_type="CAUSAL_LM",
             )
             lm = get_peft_model(lm, config)
-        model = cls(lm, tokenizer, base_model_id)
+        model = cls(lm, tokenizer, base_model_id, quantized_base=quantization)
         model.evidence_head.to(dtype=torch.float32)
         if quantization is not None or max_memory is not None:
             model.evidence_head.to(device)
@@ -119,17 +129,36 @@ class AssayModel(nn.Module):
         base_model_id = config["base_model_id"]
         weights_source = path if config.get("merged_from") else base_model_id
         tokenizer = AutoTokenizer.from_pretrained(weights_source)
-        lm = AutoModelForCausalLM.from_pretrained(
-            weights_source, dtype=dtype, attn_implementation="sdpa"
-        )
+        kwargs: dict[str, Any] = {"dtype": dtype, "attn_implementation": "sdpa"}
+        quantized_base = config.get("quantized_base")
+        if quantized_base:
+            from transformers import BitsAndBytesConfig
+
+            kwargs["quantization_config"] = (
+                BitsAndBytesConfig(load_in_8bit=True)
+                if quantized_base == "8bit"
+                else BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=dtype)
+            )
+            kwargs["device_map"] = {"": device}
+        lm = AutoModelForCausalLM.from_pretrained(weights_source, **kwargs)
         if config.get("adapter"):
             from peft import PeftModel
 
             lm = PeftModel.from_pretrained(lm, os.path.join(path, config["adapter"]))
-        model = cls(lm, tokenizer, base_model_id, temperature=config.get("temperature", 1.0))
+        model = cls(
+            lm,
+            tokenizer,
+            base_model_id,
+            temperature=config.get("temperature", 1.0),
+            normalize_evidence_input=config.get("normalize_evidence_input", False),
+            quantized_base=quantized_base,
+        )
         head_state = safetensors.torch.load_file(os.path.join(path, HEAD_FILE))
         model.evidence_head.load_state_dict(head_state)
         model.evidence_head.to(dtype=torch.float32)
+        if quantized_base:
+            model.evidence_head.to(device)
+            return model
         return model.to(device)
 
     def save_pretrained(self, path: str) -> None:
@@ -138,6 +167,8 @@ class AssayModel(nn.Module):
             "base_model_id": self.base_model_id,
             "temperature": self.temperature,
             "adapter": None,
+            "normalize_evidence_input": self.normalize_evidence_input,
+            "quantized_base": self.quantized_base,
         }
         if hasattr(self.lm, "peft_config"):
             self.lm.save_pretrained(os.path.join(path, "adapter"))
@@ -189,7 +220,10 @@ class AssayModel(nn.Module):
         valid = batch.q_option_ids >= 0
         option_logits = option_logits.masked_fill(~valid, float("-inf"))
         head_device = self.evidence_head.weight.device
-        evidence_logits = self.evidence_head(decision.float().to(head_device)).squeeze(-1)
+        head_input = decision.float().to(head_device)
+        if self.normalize_evidence_input:
+            head_input = torch.nn.functional.layer_norm(head_input, head_input.shape[-1:])
+        evidence_logits = self.evidence_head(head_input).squeeze(-1)
         evidence_logits = evidence_logits.to(option_logits.device)
         return ModelOutput(option_logits=option_logits, evidence_logits=evidence_logits)
 

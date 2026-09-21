@@ -193,6 +193,7 @@ def main() -> None:
         hub_config["base_model_id"] = args.repo
         hub_config["adapter"] = None
         hub_config["merged_from"] = base
+        hub_config["quantized_base"] = config.get("quantized_base")
     else:
         hub_config = dict(config)
     if config.get("adapter"):
