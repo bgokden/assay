@@ -19,9 +19,16 @@ from assay.model import AssayModel
 from assay.records import Record, read_records
 
 
-def load_model(spec: str, dtype: torch.dtype = torch.bfloat16) -> AssayModel:
+def load_model(
+    spec: str,
+    dtype: torch.dtype = torch.bfloat16,
+    quantization: str | None = None,
+    max_memory: dict[str | int, str] | None = None,
+) -> AssayModel:
     if spec.startswith("base:"):
-        return AssayModel.from_base(spec[len("base:") :], lora_r=None, dtype=dtype)
+        return AssayModel.from_base(
+            spec[len("base:") :], lora_r=None, dtype=dtype, quantization=quantization, max_memory=max_memory
+        )
     return AssayModel.from_pretrained(spec, dtype=dtype)
 
 
@@ -123,8 +130,12 @@ def main() -> None:
     ap.add_argument("--batch-size", type=int, default=16)
     ap.add_argument("--temperature", type=float)
     ap.add_argument("--max-state-tokens", type=int, default=2048)
+    ap.add_argument("--quant", choices=["8bit", "4bit"], help="bitsandbytes quantization for base: models")
+    ap.add_argument("--gpu-memory", help="for base: models larger than the GPU, e.g. 28GiB; the rest goes to CPU RAM")
+    ap.add_argument("--cpu-memory", default="50GiB")
     args = ap.parse_args()
-    model = load_model(args.model)
+    max_memory = {0: args.gpu_memory, "cpu": args.cpu_memory} if args.gpu_memory else None
+    model = load_model(args.model, quantization=args.quant, max_memory=max_memory)
     records = list(read_records(args.data, limit=args.limit))
     t0 = time.time()
     scored = predict(

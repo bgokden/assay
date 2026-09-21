@@ -57,11 +57,30 @@ class AssayModel(nn.Module):
         lora_dropout: float = 0.05,
         dtype: torch.dtype = torch.bfloat16,
         device: str = "cuda",
+        quantization: str | None = None,
+        max_memory: dict[str | int, str] | None = None,
     ) -> AssayModel:
+        """quantization: None, "8bit" or "4bit" (bitsandbytes, nn.Linear weights only).
+        max_memory: when given, layers are spread over the listed devices (accelerate), for
+        example {0: "28GiB", "cpu": "50GiB"} to run a model larger than the GPU."""
         tokenizer = AutoTokenizer.from_pretrained(base_model_id)
-        lm = AutoModelForCausalLM.from_pretrained(
-            base_model_id, dtype=dtype, attn_implementation="sdpa"
-        )
+        kwargs: dict[str, Any] = {"dtype": dtype, "attn_implementation": "sdpa"}
+        if quantization is not None:
+            from transformers import BitsAndBytesConfig
+
+            if quantization == "8bit":
+                kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
+            elif quantization == "4bit":
+                kwargs["quantization_config"] = BitsAndBytesConfig(
+                    load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=dtype
+                )
+            else:
+                raise ValueError(f"unknown quantization {quantization!r}")
+            kwargs["device_map"] = {"": device}
+        if max_memory is not None:
+            kwargs["device_map"] = "auto"
+            kwargs["max_memory"] = max_memory
+        lm = AutoModelForCausalLM.from_pretrained(base_model_id, **kwargs)
         if lora_r is not None:
             from peft import LoraConfig, get_peft_model
 
@@ -76,6 +95,9 @@ class AssayModel(nn.Module):
             lm = get_peft_model(lm, config)
         model = cls(lm, tokenizer, base_model_id)
         model.evidence_head.to(dtype=torch.float32)
+        if quantization is not None or max_memory is not None:
+            model.evidence_head.to(device)
+            return model
         return model.to(device)
 
     @classmethod
@@ -153,7 +175,9 @@ class AssayModel(nn.Module):
         option_logits = logits.gather(1, option_ids)
         valid = batch.q_option_ids >= 0
         option_logits = option_logits.masked_fill(~valid, float("-inf"))
-        evidence_logits = self.evidence_head(decision.float()).squeeze(-1)
+        head_device = self.evidence_head.weight.device
+        evidence_logits = self.evidence_head(decision.float().to(head_device)).squeeze(-1)
+        evidence_logits = evidence_logits.to(option_logits.device)
         return ModelOutput(option_logits=option_logits, evidence_logits=evidence_logits)
 
     # --- inference ----------------------------------------------------------------------
