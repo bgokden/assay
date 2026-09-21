@@ -41,6 +41,27 @@ def epoch_order(seed: int, epoch: int, n: int) -> list[int]:
     return order
 
 
+def training_schedule(
+    records: list[Record], epochs: float, batch_size: int, pair_budget: int, seed: int
+) -> list[list[int]]:
+    """Every batch of the run in order: whole epochs, each with its own shuffle, and a
+    proportional slice of the last one when `epochs` is fractional. Resuming at step k means
+    continuing from schedule[k]."""
+    schedule: list[list[int]] = []
+    whole = int(epochs)
+    for epoch in range(whole):
+        schedule += make_batches(
+            records, epoch_order(seed, epoch, len(records)), batch_size, pair_budget
+        )
+    fraction = epochs - whole
+    if fraction > 0:
+        last = make_batches(
+            records, epoch_order(seed, whole, len(records)), batch_size, pair_budget
+        )
+        schedule += last[: max(1, int(len(last) * fraction))]
+    return schedule
+
+
 def save_checkpoint(path: str, model, optimizer, scheduler, step: int) -> None:
     state = {
         "model": {k: v.detach().cpu() for k, v in model.state_dict().items()},
@@ -238,10 +259,8 @@ def main() -> None:
     for extra in args.extra:
         records += flatten(list(read_records(extra)))
     print(f"train records: {len(records)}", flush=True)
-    steps_per_epoch = len(
-        make_batches(records, list(range(len(records))), args.batch_size, args.pair_budget)
-    )
-    total = int(steps_per_epoch * args.epochs)
+    schedule = training_schedule(records, args.epochs, args.batch_size, args.pair_budget, args.seed)
+    total = len(schedule)
     warmup = int(total * args.warmup)
 
     enc_params = list(model.encoder.parameters())
@@ -267,57 +286,46 @@ def main() -> None:
     t0 = time.time()
     running = {"loss": 0.0, "answer": 0.0, "evidence": 0.0, "n": 0}
     model.train()
-    done = step >= total
-    while not done:
-        epoch = step // steps_per_epoch
-        batches = make_batches(
-            records, epoch_order(args.seed, epoch, len(records)), args.batch_size, args.pair_budget
-        )
-        for idx in batches[step - epoch * steps_per_epoch :]:
-            if step >= total:
-                done = True
-                break
-            batch = [records[i] for i in idx]
-            qs = [r.questions[0].question for r in batch]
-            with torch.autocast("cuda", dtype=torch.bfloat16):
-                logits, evidence = model([r.state for r in batch], qs)
-            k_max = logits.shape[1]
-            target, answerable = build_targets(batch, k_max, args.hard_targets, args.score_sigma)
-            target = target.to(logits.device)
-            answerable = answerable.to(logits.device)
-            logp = F.log_softmax(logits.float(), dim=-1)
-            ce = -(target * logp.masked_fill(target == 0, 0.0)).sum(-1)
-            answer_loss = (ce * answerable).sum() / answerable.sum().clamp(min=1.0)
-            evidence_loss = F.binary_cross_entropy_with_logits(evidence.float(), answerable)
-            loss = answer_loss + args.evidence_weight * evidence_loss
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
-            scheduler.step()
-            optimizer.zero_grad(set_to_none=True)
-            step += 1
-            running["loss"] += loss.item()
-            running["answer"] += answer_loss.item()
-            running["evidence"] += evidence_loss.item()
-            running["n"] += 1
-            if step % args.log_every == 0:
-                n = running["n"]
-                entry = {
-                    "step": step,
-                    "loss": running["loss"] / n,
-                    "answer_loss": running["answer"] / n,
-                    "evidence_loss": running["evidence"] / n,
-                    "lr": scheduler.get_last_lr()[0],
-                    "elapsed": time.time() - t0,
-                }
-                print(json.dumps(entry), flush=True)
-                with open(os.path.join(args.out, "train_log.jsonl"), "a") as log:
-                    log.write(json.dumps(entry) + "\n")
-                running = {"loss": 0.0, "answer": 0.0, "evidence": 0.0, "n": 0}
-            if args.checkpoint_every and step % args.checkpoint_every == 0:
-                save_checkpoint(checkpoint_path, model, optimizer, scheduler, step)
-        if step >= total:
-            done = True
+    for idx in schedule[step:]:
+        batch = [records[i] for i in idx]
+        qs = [r.questions[0].question for r in batch]
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            logits, evidence = model([r.state for r in batch], qs)
+        k_max = logits.shape[1]
+        target, answerable = build_targets(batch, k_max, args.hard_targets, args.score_sigma)
+        target = target.to(logits.device)
+        answerable = answerable.to(logits.device)
+        logp = F.log_softmax(logits.float(), dim=-1)
+        ce = -(target * logp.masked_fill(target == 0, 0.0)).sum(-1)
+        answer_loss = (ce * answerable).sum() / answerable.sum().clamp(min=1.0)
+        evidence_loss = F.binary_cross_entropy_with_logits(evidence.float(), answerable)
+        loss = answer_loss + args.evidence_weight * evidence_loss
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step()
+        scheduler.step()
+        optimizer.zero_grad(set_to_none=True)
+        step += 1
+        running["loss"] += loss.item()
+        running["answer"] += answer_loss.item()
+        running["evidence"] += evidence_loss.item()
+        running["n"] += 1
+        if step % args.log_every == 0:
+            n = running["n"]
+            entry = {
+                "step": step,
+                "loss": running["loss"] / n,
+                "answer_loss": running["answer"] / n,
+                "evidence_loss": running["evidence"] / n,
+                "lr": scheduler.get_last_lr()[0],
+                "elapsed": time.time() - t0,
+            }
+            print(json.dumps(entry), flush=True)
+            with open(os.path.join(args.out, "train_log.jsonl"), "a") as log:
+                log.write(json.dumps(entry) + "\n")
+            running = {"loss": 0.0, "answer": 0.0, "evidence": 0.0, "n": 0}
+        if args.checkpoint_every and step % args.checkpoint_every == 0:
+            save_checkpoint(checkpoint_path, model, optimizer, scheduler, step)
     model.save_pretrained(args.out)
     print(f"saved to {args.out} after {step} steps, {time.time() - t0:.0f}s", flush=True)
 
