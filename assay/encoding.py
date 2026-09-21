@@ -32,6 +32,9 @@ class EncodedQuestion:
     end: int
     readout: int
     option_token_ids: list[int]
+    # token span [start, end) of each option's line in canonical order; (-1, -1) when the
+    # option has no text of its own (a bool without yes/no descriptions)
+    option_spans: list[tuple[int, int]]
 
 
 @dataclasses.dataclass
@@ -59,28 +62,64 @@ def _option_line(label: str, key: str, description: str | None) -> str:
     return f"{label}. {_display_key(key)}: {description}"
 
 
-def render_question(question: Question, alphabet: LabelAlphabet, order: list[int]) -> str:
-    """Text of one question block. `order` lists canonical option indices in display order."""
+def question_lines(
+    question: Question, alphabet: LabelAlphabet, order: list[int]
+) -> tuple[list[str], dict[int, int]]:
+    """Lines of one question block and, for the lines that carry an option, the line index ->
+    canonical option index. `order` lists canonical option indices in display order."""
     lines = [f"\nQuestion: {question.instructions.strip()}"]
+    option_lines: dict[int, int] = {}
     if question.type == "bool":
         if question.yes is not None:
+            option_lines[len(lines)] = 0
             lines.append(f"yes: {question.yes.strip()}")
         if question.no is not None:
+            option_lines[len(lines)] = 1
             lines.append(f"no: {question.no.strip()}")
         lines.append("Answer (yes or no):")
-        return "\n".join(lines)
+        return lines, option_lines
     if question.type == "choice":
         keys = list(question.options.keys())
         lines.append("Options:")
         for pos, idx in enumerate(order):
             key = keys[idx]
+            option_lines[len(lines)] = idx
             lines.append(_option_line(alphabet.labels[pos], key, question.options[key]))
     else:
         lines.append("Levels (lowest to highest):")
         for pos, idx in enumerate(order):
+            option_lines[len(lines)] = idx
             lines.append(f"{alphabet.labels[pos]}. {question.levels[idx].strip()}")
     lines.append("Answer:")
-    return "\n".join(lines)
+    return lines, option_lines
+
+
+def render_question(question: Question, alphabet: LabelAlphabet, order: list[int]) -> str:
+    """Text of one question block."""
+    return "\n".join(question_lines(question, alphabet, order)[0])
+
+
+def tokenize_lines(
+    tokenizer: PreTrainedTokenizerBase, lines: list[str]
+) -> tuple[list[int], list[tuple[int, int]]]:
+    """Token ids of the joined lines and, per line, the span of tokens that start inside it.
+    The text is tokenized as a whole, so ids are identical to encoding the joined string."""
+    text = "\n".join(lines)
+    enc = tokenizer(text, add_special_tokens=False, return_offsets_mapping=True)
+    ids, offsets = enc["input_ids"], enc["offset_mapping"]
+    spans: list[tuple[int, int]] = []
+    char_start = 0
+    token = 0
+    for line in lines:
+        char_end = char_start + len(line)
+        while token < len(ids) and offsets[token][0] < char_start:
+            token += 1
+        first = token
+        while token < len(ids) and offsets[token][0] < char_end:
+            token += 1
+        spans.append((first, token) if token > first else (-1, -1))
+        char_start = char_end + 1
+    return ids, spans
 
 
 def identity_order(question: Question) -> list[int]:
@@ -111,9 +150,8 @@ def encode(
     for k, (question, order) in enumerate(zip(questions, orders)):
         if sorted(order) != list(range(len(question.keys))):
             raise ValueError("order must be a permutation of the question's options")
-        block = tokenizer.encode(
-            render_question(question, alphabet, order), add_special_tokens=False
-        )
+        lines, option_lines = question_lines(question, alphabet, order)
+        block, line_spans = tokenize_lines(tokenizer, lines)
         start = len(input_ids)
         input_ids.extend(block)
         position_ids.extend(range(state_len, state_len + len(block)))
@@ -127,8 +165,19 @@ def encode(
             option_token_ids = [
                 alphabet.token_ids[position_of[idx]] for idx in range(len(question.keys))
             ]
+        option_spans = [(-1, -1)] * len(question.keys)
+        for line_index, idx in option_lines.items():
+            first, last = line_spans[line_index]
+            if first >= 0:
+                option_spans[idx] = (start + first, start + last)
         encoded.append(
-            EncodedQuestion(start=start, end=end, readout=end - 1, option_token_ids=option_token_ids)
+            EncodedQuestion(
+                start=start,
+                end=end,
+                readout=end - 1,
+                option_token_ids=option_token_ids,
+                option_spans=option_spans,
+            )
         )
     return Packed(
         input_ids=input_ids,
@@ -165,6 +214,7 @@ class Batch:
     q_batch_index: torch.Tensor
     q_readout: torch.Tensor
     q_option_ids: torch.Tensor  # (Q, K_max), padded with -1
+    q_option_spans: torch.Tensor  # (Q, K_max, 2) token spans of option lines, -1 when absent
     q_num_options: torch.Tensor
     num_questions: int
 
@@ -177,6 +227,7 @@ class Batch:
             q_batch_index=self.q_batch_index.to(device),
             q_readout=self.q_readout.to(device),
             q_option_ids=self.q_option_ids.to(device),
+            q_option_spans=self.q_option_spans.to(device),
             q_num_options=self.q_num_options.to(device),
             num_questions=self.num_questions,
         )
@@ -188,7 +239,7 @@ def collate(packed: list[Packed], pad_token_id: int) -> Batch:
     input_ids = torch.full((batch, length), pad_token_id, dtype=torch.long)
     position_ids = torch.zeros((batch, length), dtype=torch.long)
     block_ids = torch.full((batch, length), PAD_BLOCK, dtype=torch.long)
-    q_batch_index, q_readout, q_option_ids, q_num = [], [], [], []
+    q_batch_index, q_readout, q_option_ids, q_spans, q_num = [], [], [], [], []
     for b, p in enumerate(packed):
         n = len(p)
         input_ids[b, :n] = torch.tensor(p.input_ids)
@@ -198,11 +249,14 @@ def collate(packed: list[Packed], pad_token_id: int) -> Batch:
             q_batch_index.append(b)
             q_readout.append(q.readout)
             q_option_ids.append(q.option_token_ids)
+            q_spans.append(q.option_spans)
             q_num.append(len(q.option_token_ids))
     k_max = max(q_num) if q_num else 1
     option_ids = torch.full((len(q_num), k_max), -1, dtype=torch.long)
-    for i, ids in enumerate(q_option_ids):
+    option_spans = torch.full((len(q_num), k_max, 2), -1, dtype=torch.long)
+    for i, (ids, spans) in enumerate(zip(q_option_ids, q_spans)):
         option_ids[i, : len(ids)] = torch.tensor(ids)
+        option_spans[i, : len(spans)] = torch.tensor(spans)
     return Batch(
         input_ids=input_ids,
         position_ids=position_ids,
@@ -211,6 +265,7 @@ def collate(packed: list[Packed], pad_token_id: int) -> Batch:
         q_batch_index=torch.tensor(q_batch_index, dtype=torch.long),
         q_readout=torch.tensor(q_readout, dtype=torch.long),
         q_option_ids=option_ids,
+        q_option_spans=option_spans,
         q_num_options=torch.tensor(q_num, dtype=torch.long),
         num_questions=len(q_num),
     )

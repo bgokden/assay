@@ -41,7 +41,14 @@ def target_vector(lq, hard_targets: bool, score_sigma: float) -> list[float]:
 
 
 class TrainBatchBuilder:
-    def __init__(self, model: AssayModel, max_state_tokens: int, hard_targets: bool, score_sigma: float, seed: int):
+    def __init__(
+        self,
+        model: AssayModel,
+        max_state_tokens: int,
+        hard_targets: bool,
+        score_sigma: float,
+        seed: int,
+    ):
         self.model = model
         self.max_state_tokens = max_state_tokens
         self.hard_targets = hard_targets
@@ -83,7 +90,9 @@ class TrainBatchBuilder:
         return batch, target, torch.tensor(answerable, dtype=torch.float32)
 
 
-def bucket_batches(records: list[Record], batch_size: int, rng: random.Random, length_key) -> list[list[Record]]:
+def bucket_batches(
+    records: list[Record], batch_size: int, rng: random.Random, length_key
+) -> list[list[Record]]:
     order = list(range(len(records)))
     rng.shuffle(order)
     chunk = batch_size * 16
@@ -98,7 +107,9 @@ def bucket_batches(records: list[Record], batch_size: int, rng: random.Random, l
 
 def approx_length(r: Record) -> int:
     state = r.state if isinstance(r.state, str) else json.dumps(r.state)
-    extra = sum(len(json.dumps(lq.question.options or lq.question.levels or "")) for lq in r.questions)
+    extra = sum(
+        len(json.dumps(lq.question.options or lq.question.levels or "")) for lq in r.questions
+    )
     return len(state) + extra
 
 
@@ -108,7 +119,11 @@ def compute_loss(out, target, answerable, evidence_weight: float):
     n_ans = answerable.sum().clamp(min=1.0)
     answer_loss = (ce * answerable).sum() / n_ans
     evidence_loss = F.binary_cross_entropy_with_logits(out.evidence_logits, answerable)
-    return answer_loss + evidence_weight * evidence_loss, answer_loss.detach(), evidence_loss.detach()
+    return (
+        answer_loss + evidence_weight * evidence_loss,
+        answer_loss.detach(),
+        evidence_loss.detach(),
+    )
 
 
 def main() -> None:
@@ -128,6 +143,9 @@ def main() -> None:
     ap.add_argument("--evidence-weight", type=float, default=0.5)
     ap.add_argument("--score-sigma", type=float, default=0.5)
     ap.add_argument("--hard-targets", action="store_true", help="ablation: one-hot targets only")
+    ap.add_argument(
+        "--content-term", action="store_true", help="add the content-scored option term"
+    )
     ap.add_argument("--max-state-tokens", type=int, default=1024)
     ap.add_argument("--limit", type=int, help="use only the first N training records")
     ap.add_argument("--eval-every", type=int, default=0)
@@ -135,7 +153,9 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--no-gradient-checkpointing", action="store_true")
     ap.add_argument("--checkpoint-every", type=int, default=500)
-    ap.add_argument("--resume", action="store_true", help="continue from <out>/checkpoint if present")
+    ap.add_argument(
+        "--resume", action="store_true", help="continue from <out>/checkpoint if present"
+    )
     ap.add_argument("--quant", choices=["8bit", "4bit"], help="quantize the frozen base (QLoRA)")
     ap.add_argument("--eval-batch-size", type=int, default=16)
     args = ap.parse_args()
@@ -146,27 +166,43 @@ def main() -> None:
     with open(os.path.join(args.out, "train_args.json"), "w") as f:
         json.dump(vars(args), f, indent=2)
 
-    model = AssayModel.from_base(args.base, lora_r=args.lora_r, lora_alpha=args.lora_alpha, quantization=args.quant)
+    model = AssayModel.from_base(
+        args.base,
+        lora_r=args.lora_r,
+        lora_alpha=args.lora_alpha,
+        quantization=args.quant,
+        content_term=args.content_term,
+    )
     causal_lm = model._causal_lm()
     if not args.no_gradient_checkpointing:
-        causal_lm.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        causal_lm.gradient_checkpointing_enable(
+            gradient_checkpointing_kwargs={"use_reentrant": False}
+        )
         causal_lm.enable_input_require_grads()
     model.train()
 
     records = list(read_records(os.path.join(args.data, "train.jsonl"), limit=args.limit))
     dev = list(read_records(os.path.join(args.data, "dev.jsonl")))
     if model.hybrid:
-        records = [Record(state=r.state, questions=[lq], meta=r.meta) for r in records for lq in r.questions]
+        records = [
+            Record(state=r.state, questions=[lq], meta=r.meta)
+            for r in records
+            for lq in r.questions
+        ]
     print(f"train records: {len(records)}  dev records: {len(dev)}")
 
-    builder = TrainBatchBuilder(model, args.max_state_tokens, args.hard_targets, args.score_sigma, args.seed)
+    builder = TrainBatchBuilder(
+        model, args.max_state_tokens, args.hard_targets, args.score_sigma, args.seed
+    )
     steps_per_epoch = math.ceil(len(records) / args.batch_size)
     total_updates = math.ceil(steps_per_epoch * args.epochs / args.grad_accum)
     warmup_updates = int(total_updates * args.warmup)
 
     lora_params = [p for n, p in model.lm.named_parameters() if p.requires_grad]
-    head_params = list(model.evidence_head.parameters())
-    print(f"trainable: lora {sum(p.numel() for p in lora_params)/1e6:.1f}M, head {sum(p.numel() for p in head_params)}")
+    head_params = list(model.heads().parameters())
+    print(
+        f"trainable: lora {sum(p.numel() for p in lora_params) / 1e6:.1f}M, head {sum(p.numel() for p in head_params)}"
+    )
     optimizer = torch.optim.AdamW(
         [
             {"params": lora_params, "lr": args.lr, "weight_decay": args.weight_decay},
@@ -211,7 +247,9 @@ def main() -> None:
             answerable = answerable.to(model.device)
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 out = model(batch)
-            loss, answer_loss, evidence_loss = compute_loss(out, target, answerable, args.evidence_weight)
+            loss, answer_loss, evidence_loss = compute_loss(
+                out, target, answerable, args.evidence_weight
+            )
             (loss / args.grad_accum).backward()
             step += 1
             seen += 1
@@ -243,7 +281,11 @@ def main() -> None:
             if args.eval_every and step % args.eval_every == 0:
                 evaluate_and_log(model, dev, log_path, step, args)
                 model.train()
-            if args.checkpoint_every and step % args.checkpoint_every == 0 and step % args.grad_accum == 0:
+            if (
+                args.checkpoint_every
+                and step % args.checkpoint_every == 0
+                and step % args.grad_accum == 0
+            ):
                 save_checkpoint(checkpoint_dir, model, optimizer, scheduler, step, update)
         if done:
             break
@@ -259,11 +301,13 @@ def append_log(path: str, entry: dict) -> None:
 
 def trainable_state(model: AssayModel) -> dict[str, torch.Tensor]:
     state = {f"lm.{n}": p.detach().cpu() for n, p in model.lm.named_parameters() if p.requires_grad}
-    state.update({f"evidence_head.{k}": v.detach().cpu() for k, v in model.evidence_head.state_dict().items()})
+    state.update({f"heads.{k}": v.detach().cpu() for k, v in model.head_state_dict().items()})
     return state
 
 
-def save_checkpoint(path: str, model: AssayModel, optimizer, scheduler, step: int, update: int) -> None:
+def save_checkpoint(
+    path: str, model: AssayModel, optimizer, scheduler, step: int, update: int
+) -> None:
     os.makedirs(path, exist_ok=True)
     tmp = os.path.join(path, "state.pt.tmp")
     torch.save(
@@ -284,13 +328,17 @@ def save_checkpoint(path: str, model: AssayModel, optimizer, scheduler, step: in
 def load_checkpoint(path: str, model: AssayModel, optimizer, scheduler) -> tuple[int, int]:
     state = torch.load(os.path.join(path, "state.pt"), map_location="cpu", weights_only=False)
     params = dict(model.lm.named_parameters())
-    head = model.evidence_head.state_dict()
     with torch.no_grad():
         for name, value in state["params"].items():
             if name.startswith("lm."):
                 params[name[3:]].copy_(value)
-            else:
-                head[name[len("evidence_head.") :]].copy_(value)
+        heads = {}
+        for name, value in state["params"].items():
+            if name.startswith("heads."):
+                heads[name[len("heads.") :]] = value
+            elif name.startswith("evidence_head."):  # checkpoints written before the content term
+                heads[name[len("evidence_head.") :]] = value
+        model.load_heads(heads)
     optimizer.load_state_dict(state["optimizer"])
     scheduler.load_state_dict(state["scheduler"])
     torch.set_rng_state(state["torch_rng"])
@@ -302,7 +350,9 @@ def evaluate_and_log(model: AssayModel, dev: list[Record], log_path: str, step: 
     model.eval()
     torch.cuda.empty_cache()
     with torch.autocast("cuda", dtype=torch.bfloat16):
-        scored = predict(model, dev, batch_size=args.eval_batch_size, max_state_tokens=args.max_state_tokens)
+        scored = predict(
+            model, dev, batch_size=args.eval_batch_size, max_state_tokens=args.max_state_tokens
+        )
     rep = report(scored)
     print(f"--- dev at step {step} ---")
     print(format_report(rep))

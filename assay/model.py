@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import math
 import os
 from typing import Any
 
@@ -36,6 +37,7 @@ class AssayModel(nn.Module):
         temperature: float = 1.0,
         normalize_evidence_input: bool = True,
         quantized_base: str | None = None,
+        content_term: bool = False,
     ) -> None:
         super().__init__()
         self.lm = lm
@@ -54,6 +56,12 @@ class AssayModel(nn.Module):
         self.evidence_head = nn.Linear(hidden, 1)
         nn.init.zeros_(self.evidence_head.weight)
         nn.init.zeros_(self.evidence_head.bias)
+        # content-scored option term: a bilinear score between the decision vector and each
+        # option line's pooled hidden state, added to the label-token logit. Zero at start, so
+        # a fresh model answers exactly as the label readout alone.
+        self.content_proj = nn.Linear(hidden, hidden, bias=False) if content_term else None
+        if self.content_proj is not None:
+            nn.init.zeros_(self.content_proj.weight)
         self.temperature = temperature
 
     # --- construction -------------------------------------------------------------------
@@ -69,6 +77,7 @@ class AssayModel(nn.Module):
         device: str = "cuda",
         quantization: str | None = None,
         max_memory: dict[str | int, str] | None = None,
+        content_term: bool = False,
     ) -> AssayModel:
         """quantization: None, "8bit" or "4bit" (bitsandbytes, nn.Linear weights only).
         max_memory: when given, layers are spread over the listed devices (accelerate), for
@@ -98,15 +107,25 @@ class AssayModel(nn.Module):
                 r=lora_r,
                 lora_alpha=lora_alpha,
                 lora_dropout=lora_dropout,
-                target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+                target_modules=[
+                    "q_proj",
+                    "k_proj",
+                    "v_proj",
+                    "o_proj",
+                    "gate_proj",
+                    "up_proj",
+                    "down_proj",
+                ],
                 bias="none",
                 task_type="CAUSAL_LM",
             )
             lm = get_peft_model(lm, config)
-        model = cls(lm, tokenizer, base_model_id, quantized_base=quantization)
-        model.evidence_head.to(dtype=torch.float32)
+        model = cls(
+            lm, tokenizer, base_model_id, quantized_base=quantization, content_term=content_term
+        )
+        model.heads().to(dtype=torch.float32)
         if quantization is not None or max_memory is not None:
-            model.evidence_head.to(device)
+            model.heads().to(device)
             return model
         return model.to(device)
 
@@ -133,7 +152,9 @@ class AssayModel(nn.Module):
             kwargs["quantization_config"] = (
                 BitsAndBytesConfig(load_in_8bit=True)
                 if quantized_base == "8bit"
-                else BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=dtype)
+                else BitsAndBytesConfig(
+                    load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=dtype
+                )
             )
             kwargs["device_map"] = {"": device}
         lm = AutoModelForCausalLM.from_pretrained(weights_source, **kwargs)
@@ -148,12 +169,12 @@ class AssayModel(nn.Module):
             temperature=config.get("temperature", 1.0),
             normalize_evidence_input=config.get("normalize_evidence_input", False),
             quantized_base=quantized_base,
+            content_term=config.get("content_term", False),
         )
-        head_state = safetensors.torch.load_file(os.path.join(path, HEAD_FILE))
-        model.evidence_head.load_state_dict(head_state)
-        model.evidence_head.to(dtype=torch.float32)
+        model.load_heads(safetensors.torch.load_file(os.path.join(path, HEAD_FILE)))
+        model.heads().to(dtype=torch.float32)
         if quantized_base:
-            model.evidence_head.to(device)
+            model.heads().to(device)
             return model
         return model.to(device)
 
@@ -165,16 +186,48 @@ class AssayModel(nn.Module):
             "adapter": None,
             "normalize_evidence_input": self.normalize_evidence_input,
             "quantized_base": self.quantized_base,
+            "content_term": self.content_proj is not None,
         }
         if hasattr(self.lm, "peft_config"):
             self.lm.save_pretrained(os.path.join(path, "adapter"))
             config["adapter"] = "adapter"
         safetensors.torch.save_file(
-            {k: v.detach().cpu() for k, v in self.evidence_head.state_dict().items()},
+            {k: v.detach().cpu() for k, v in self.head_state_dict().items()},
             os.path.join(path, HEAD_FILE),
         )
         with open(os.path.join(path, CONFIG_FILE), "w") as f:
             json.dump(config, f, indent=2)
+
+    # --- heads (everything trained outside the backbone) --------------------------------
+
+    def heads(self) -> nn.ModuleList:
+        modules = [self.evidence_head]
+        if self.content_proj is not None:
+            modules.append(self.content_proj)
+        return nn.ModuleList(modules)
+
+    def head_state_dict(self) -> dict[str, torch.Tensor]:
+        """Evidence head under its bare keys (as saved since the first release), content
+        projection under a prefix."""
+        state = dict(self.evidence_head.state_dict())
+        if self.content_proj is not None:
+            state.update(
+                {f"content_proj.{k}": v for k, v in self.content_proj.state_dict().items()}
+            )
+        return state
+
+    def load_heads(self, state: dict[str, torch.Tensor]) -> None:
+        content = {
+            k[len("content_proj.") :]: v for k, v in state.items() if k.startswith("content_proj.")
+        }
+        evidence = {k: v for k, v in state.items() if not k.startswith("content_proj.")}
+        self.evidence_head.load_state_dict(evidence)
+        if self.content_proj is not None:
+            self.content_proj.load_state_dict(content)
+        elif content:
+            raise ValueError(
+                "head file has a content projection but the config has no content_term"
+            )
 
     # --- forward ------------------------------------------------------------------------
 
@@ -214,14 +267,36 @@ class AssayModel(nn.Module):
         option_ids = batch.q_option_ids.clamp(min=0)
         option_logits = logits.gather(1, option_ids)
         valid = batch.q_option_ids >= 0
-        option_logits = option_logits.masked_fill(~valid, float("-inf"))
         head_device = self.evidence_head.weight.device
         head_input = decision.float().to(head_device)
+        if self.content_proj is not None:
+            option_logits = option_logits + self._content_scores(hidden, head_input, batch).to(
+                option_logits.device
+            )
+        option_logits = option_logits.masked_fill(~valid, float("-inf"))
         if self.normalize_evidence_input:
             head_input = torch.nn.functional.layer_norm(head_input, head_input.shape[-1:])
         evidence_logits = self.evidence_head(head_input).squeeze(-1)
         evidence_logits = evidence_logits.to(option_logits.device)
         return ModelOutput(option_logits=option_logits, evidence_logits=evidence_logits)
+
+    def _content_scores(
+        self, hidden: torch.Tensor, decision: torch.Tensor, batch: Batch
+    ) -> torch.Tensor:
+        """(Q, K_max) bilinear scores between each question's decision vector and the mean
+        hidden state over each option's line; zero where an option has no line."""
+        spans = batch.q_option_spans.to(hidden.device)  # (Q, K, 2)
+        present = spans[..., 0] >= 0
+        positions = torch.arange(hidden.shape[1], device=hidden.device)
+        inside = (positions >= spans[..., :1]) & (positions < spans[..., 1:])  # (Q, K, L)
+        lengths = (spans[..., 1] - spans[..., 0]).clamp(min=1).unsqueeze(-1)
+        weights = inside.to(hidden.dtype) / lengths.to(hidden.dtype)
+        pooled = torch.bmm(weights, hidden[batch.q_batch_index])  # (Q, K, H)
+        size = hidden.shape[-1]
+        pooled = torch.nn.functional.layer_norm(pooled.float().to(decision.device), (size,))
+        query = self.content_proj(torch.nn.functional.layer_norm(decision, (size,)))
+        scores = torch.einsum("qh,qkh->qk", query, pooled) / math.sqrt(size)
+        return scores.masked_fill(~present.to(scores.device), 0.0)
 
     # --- inference ----------------------------------------------------------------------
 
@@ -236,7 +311,14 @@ class AssayModel(nn.Module):
         qs = [questions[n] for n in names]
         if self.hybrid:
             packs = [
-                encode(self.tokenizer, self.alphabet, state, [q], orders=[identity_order(q)], max_state_tokens=max_state_tokens)
+                encode(
+                    self.tokenizer,
+                    self.alphabet,
+                    state,
+                    [q],
+                    orders=[identity_order(q)],
+                    max_state_tokens=max_state_tokens,
+                )
                 for q in qs
             ]
             answers = [a[0] for a in self.answer_packed(packs, [[q] for q in qs])]

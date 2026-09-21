@@ -212,7 +212,7 @@ def main() -> None:
     with open(os.path.join(staging, CONFIG_FILE), "w") as f:
         json.dump(hub_config, f, indent=2)
     for fn in os.listdir(args.run):
-        if fn.startswith("eval-") and fn.endswith(".json") or fn in ("calibration.json", "train_args.json", "train_log.jsonl"):
+        if fn.startswith("eval-") and fn.endswith(".json") or fn in ("calibration.json", "train_args.json", "train_log.jsonl", "conformal.json"):
             shutil.copy(os.path.join(args.run, fn), os.path.join(staging, fn))
     write_model_card(args.run, args.repo, base, os.path.join(staging, "README.md"), merged=not args.no_merge)
     print(f"staged {staging}: {sorted(os.listdir(staging))}")
