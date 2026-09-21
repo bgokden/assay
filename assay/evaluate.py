@@ -63,13 +63,15 @@ def predict(
     order = sorted(range(len(records)), key=lambda i: len(packed[i]))
     results: list[list] = [None] * len(records)
     model.eval()
-    for start in range(0, len(order), batch_size):
-        idx = order[start : start + batch_size]
-        answers = model.answer_packed(
-            [packed[i] for i in idx], [[lq.question for lq in records[i].questions] for i in idx]
-        )
-        for i, a in zip(idx, answers):
-            results[i] = a
+    use_autocast = model.device.type == "cuda"
+    with torch.autocast("cuda", dtype=torch.bfloat16, enabled=use_autocast):
+        for start in range(0, len(order), batch_size):
+            idx = order[start : start + batch_size]
+            answers = model.answer_packed(
+                [packed[i] for i in idx], [[lq.question for lq in records[i].questions] for i in idx]
+            )
+            for i, a in zip(idx, answers):
+                results[i] = a
     scored: list[Scored] = []
     for r, answers in zip(records, results):
         for lq, a in zip(r.questions, answers):

@@ -33,7 +33,7 @@ class DecideRequest(BaseModel):
 
 
 def create_app(model: AssayModel, model_name: str, max_state_tokens: int = 4096) -> FastAPI:
-    app = FastAPI(title="assay", version="0.2.0")
+    app = FastAPI(title="assay", version="0.3.0")
 
     @app.get("/v1/models")
     def models() -> dict[str, Any]:

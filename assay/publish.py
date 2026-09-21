@@ -31,9 +31,19 @@ def metrics_row(name: str, path: str) -> str | None:
     )
 
 
-def write_model_card(run: str, repo: str, base: str, out_path: str) -> None:
+def write_model_card(run: str, repo: str, base: str, out_path: str, merged: bool = True) -> None:
     with open(os.path.join(run, "train_args.json")) as f:
         targs = json.load(f)
+    quant = targs.get("quant")
+    if merged:
+        weights_line = "merged weights are in this repository, the adapter is in `adapter/`."
+        load_line = "The merged weights load with transformers like any Qwen checkpoint."
+    else:
+        weights_line = (
+            f"this repository holds the adapter (`adapter/`) and the evidence head; the base is loaded "
+            f"from `{base}`" + (f" in {quant} (bitsandbytes)" if quant else "") + " at load time."
+        )
+        load_line = "Loading downloads the base model separately; the 4-bit base needs about 15 GB of GPU memory."
     calibration = {}
     if os.path.exists(os.path.join(run, "calibration.json")):
         with open(os.path.join(run, "calibration.json")) as f:
@@ -94,8 +104,8 @@ Code, server and training recipe: https://github.com/bgokden/assay
 ## How it is built
 
 - Backbone `{base}` with a LoRA adapter (r={targs['lora_r']}, alpha={targs['lora_alpha']},
-  lr={targs['lr']}, {targs['epochs']} epoch, batch {targs['batch_size']}); merged weights are in
-  this repository, the adapter is in `adapter/`.
+  lr={targs['lr']}, {targs['epochs']} epoch, batch {targs['batch_size']} x {targs.get('grad_accum', 1)}
+  accumulation{', 4-bit base (QLoRA)' if quant else ''}); {weights_line} {load_line}
 - The answer is read from the model's own next-token logits over option label tokens at a
   single decision position, so the base model's zero-shot competence is the starting point.
 - Questions are isolated branches over a shared state (block attention mask, restarted
@@ -204,7 +214,7 @@ def main() -> None:
     for fn in os.listdir(args.run):
         if fn.startswith("eval-") and fn.endswith(".json") or fn in ("calibration.json", "train_args.json", "train_log.jsonl"):
             shutil.copy(os.path.join(args.run, fn), os.path.join(staging, fn))
-    write_model_card(args.run, args.repo, base, os.path.join(staging, "README.md"))
+    write_model_card(args.run, args.repo, base, os.path.join(staging, "README.md"), merged=not args.no_merge)
     print(f"staged {staging}: {sorted(os.listdir(staging))}")
     if args.dry_run:
         return

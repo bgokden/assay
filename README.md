@@ -81,7 +81,8 @@ See `docs/research.md` for the literature and the community landscape this build
 
 ## Results
 
-Models: [Berk/assay-4b](https://huggingface.co/Berk/assay-4b) and
+Models: [Berk/assay-27b](https://huggingface.co/Berk/assay-27b) (adapter + evidence head over
+a 4-bit Qwen3.8-27B), [Berk/assay-4b](https://huggingface.co/Berk/assay-4b) and
 [Berk/assay-1.7b](https://huggingface.co/Berk/assay-1.7b) (merged weights, adapter, evidence
 head and model card in each repository). Cells are accuracy / Brier / ECE, single seed.
 
@@ -91,6 +92,8 @@ head and model card in each repository). Cells are accuracy / Brier / ECE, singl
 | **assay-1.7b** | 0.740 / 0.355 / 0.035 | 0.752 / 0.334 / 0.024 | 0.670 / 0.436 / 0.115 |
 | Qwen3-4B-Base, untrained | 0.640 / 0.452 / 0.032 | 0.740 / 0.356 / 0.042 | 0.707 / 0.383 / 0.051 |
 | **assay-4b** | 0.776 / 0.304 / 0.037 | 0.798 / 0.280 / 0.021 | 0.770 / 0.307 / 0.067 |
+| Qwen3.8-27B (4-bit), untrained | - | 0.773 / 0.312 / 0.060 | 0.793 / 0.318 / 0.077 |
+| **assay-27b** | 0.834 / 0.243 / 0.040 | 0.842 / 0.221 / 0.040 | **0.842 / 0.229 / 0.041** |
 
 Trained rows are after temperature scaling (fitted on seen-task calibration data only); raw
 numbers are in the model cards and `runs/*/eval-*.json`. "Unseen tasks" are eleven datasets
@@ -109,8 +112,14 @@ after one fitted temperature the two are within noise (holdout Brier 0.334 vs 0.
 scale the readout design and a single temperature do most of the calibration work; soft
 targets are a modest, consistent extra.
 
-**Latency** (RTX 5090, bf16, plain transformers, 4B): 23 ms for one question, 57 ms for 24
-questions packed over the same state, versus 548 ms as 24 separate requests.
+On the transfer suite assay-27b is within 1.5 points of Jev's reported 0.857 and 0.018 Brier
+of its 0.211, after 4.5 hours of QLoRA on one RTX 5090. Per family it is above Jev on dates
+(0.95 vs 0.93), QNLI and emotion, at parity on authorization, and below on MMLU (0.78 vs 0.90),
+PAWS and offensive language.
+
+**Latency** (RTX 5090, plain transformers): 4B in bf16, 23 ms for one question, 57 ms for 24
+questions packed over the same state (548 ms as separate requests). 27B in 4-bit, 110 ms for
+one question; hybrid backbones are not packed yet, so 24 questions run as a batch in 750 ms.
 
 ## Install and run
 
@@ -139,7 +148,9 @@ uv run python -m assay.publish --run runs/assay-4b --repo <user>/assay-4b
 ```
 
 The 4B run takes 47 minutes on one RTX 5090 (LoRA r=16, lr 5e-5, batch 8, one epoch over
-54,350 examples); the 1.7B takes 23 minutes.
+54,350 examples); the 1.7B takes 23 minutes; the 27B takes 4.5 hours with
+`--quant 4bit --batch-size 4 --grad-accum 2 --eval-batch-size 4 --max-state-tokens 1024`
+(evaluate it with `scripts/eval_all.sh runs/assay-27b data/v2 4 1024`).
 
 `data/suites/kev-transfer-v4-dev.jsonl` is the public transfer suite from
 [jaredpalmer/kev-suites](https://huggingface.co/datasets/jaredpalmer/kev-suites); none of its

@@ -9,6 +9,7 @@ Each item names the evidence behind it, the expected gain, and what would make u
 |---|---|---|---|
 | assay-1.7b | 0.740 / 0.355 / 0.035 | 0.752 / 0.334 / 0.024 | 0.670 / 0.436 / 0.115 |
 | assay-4b | 0.776 / 0.304 / 0.037 | 0.798 / 0.280 / 0.021 | 0.770 / 0.307 / 0.067 |
+| assay-27b (QLoRA on Qwen3.8-27B) | 0.834 / 0.243 / 0.040 | 0.842 / 0.221 / 0.040 | 0.842 / 0.229 / 0.041 |
 | Jev (third-party run) | - | - | 0.857 / 0.211 / - |
 
 Cells: accuracy / Brier / ECE after temperature scaling.
@@ -27,7 +28,11 @@ the newest 27B is a different tier, already above every model we trained, and it
 
 ## Plan, in order
 
-### 1. Finish assay-27b (running)
+### 1. Finish assay-27b (done 2026-09-21)
+
+Result: transfer 0.842 / 0.229 / 0.041, holdout 0.842 / 0.221; MMLU 0.78, dates 0.95,
+authorization 1.00. Published as adapter plus head at Berk/assay-27b. Remaining gap to Jev
+is knowledge (MMLU) and two style families (PAWS, offensive), 1.5 points overall.
 
 QLoRA on Qwen3.8-27B: 4-bit base, LoRA r=16, lr 5e-5, batch 4 x 2 accumulation, one epoch,
 checkpoint every 500 steps with automatic resume. Fit its temperature. Publish adapter plus
