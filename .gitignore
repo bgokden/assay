@@ -9,3 +9,4 @@ tmp/outputs/
 *.egg-info/
 dist/
 tmp/
+private/
