@@ -6,11 +6,12 @@
 set -euo pipefail
 
 BASE="$1"; OUT="$2"; DATA="$3"; shift 3
+EVAL_BATCH="${EVAL_BATCH:-16}"
 cd "$(dirname "$0")/.."
 
 evaluate() {  # name, data file, extra args...
   local name="$1"; local data="$2"; shift 2
-  uv run python -m assay.evaluate --model "$OUT" --data "$data" --out "$OUT/eval-$name.json" "$@" \
+  uv run python -m assay.evaluate --model "$OUT" --data "$data" --out "$OUT/eval-$name.json" --batch-size "$EVAL_BATCH" "$@" \
     > "$OUT/eval-$name.txt" 2>&1
   echo "$name: $(grep '^overall' "$OUT/eval-$name.txt")"
 }
