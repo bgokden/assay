@@ -159,7 +159,8 @@ def build_attention_mask(block_ids: torch.Tensor) -> torch.Tensor:
 class Batch:
     input_ids: torch.Tensor
     position_ids: torch.Tensor
-    attention_mask: torch.Tensor
+    attention_mask: torch.Tensor  # (B, 1, L, L) block mask for full-attention layers
+    padding_mask: torch.Tensor  # (B, L) 1 for real tokens, for recurrent layers
     # flat over all questions in the batch
     q_batch_index: torch.Tensor
     q_readout: torch.Tensor
@@ -172,6 +173,7 @@ class Batch:
             input_ids=self.input_ids.to(device),
             position_ids=self.position_ids.to(device),
             attention_mask=self.attention_mask.to(device),
+            padding_mask=self.padding_mask.to(device),
             q_batch_index=self.q_batch_index.to(device),
             q_readout=self.q_readout.to(device),
             q_option_ids=self.q_option_ids.to(device),
@@ -205,6 +207,7 @@ def collate(packed: list[Packed], pad_token_id: int) -> Batch:
         input_ids=input_ids,
         position_ids=position_ids,
         attention_mask=build_attention_mask(block_ids),
+        padding_mask=(block_ids != PAD_BLOCK).long(),
         q_batch_index=torch.tensor(q_batch_index, dtype=torch.long),
         q_readout=torch.tensor(q_readout, dtype=torch.long),
         q_option_ids=option_ids,

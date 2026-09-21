@@ -153,6 +153,8 @@ def main() -> None:
 
     records = list(read_records(os.path.join(args.data, "train.jsonl"), limit=args.limit))
     dev = list(read_records(os.path.join(args.data, "dev.jsonl")))
+    if model.hybrid:
+        records = [Record(state=r.state, questions=[lq], meta=r.meta) for r in records for lq in r.questions]
     print(f"train records: {len(records)}  dev records: {len(dev)}")
 
     builder = TrainBatchBuilder(model, args.max_state_tokens, args.hard_targets, args.score_sigma, args.seed)

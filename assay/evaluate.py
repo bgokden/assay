@@ -43,6 +43,10 @@ def predict(
     if temperature is not None:
         model.temperature = temperature
     records = list(records)
+    if model.hybrid:
+        records = [
+            Record(state=r.state, questions=[lq], meta=r.meta) for r in records for lq in r.questions
+        ]
     packed: list[Packed] = []
     for r in records:
         qs = [lq.question for lq in r.questions]

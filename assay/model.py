@@ -40,7 +40,11 @@ class AssayModel(nn.Module):
         self.tokenizer = tokenizer
         self.base_model_id = base_model_id
         self.alphabet = LabelAlphabet(tokenizer)
-        hidden = self._backbone().config.hidden_size
+        config = self._backbone().config
+        hidden = config.hidden_size
+        # hybrid backbones (linear-attention layers) carry state along the sequence, so the
+        # block mask cannot isolate packed questions: they are answered one per sequence
+        self.hybrid = "linear_attention" in set(getattr(config, "layer_types", None) or [])
         self.evidence_head = nn.Linear(hidden, 1)
         nn.init.zeros_(self.evidence_head.weight)
         nn.init.zeros_(self.evidence_head.bias)
@@ -163,10 +167,19 @@ class AssayModel(nn.Module):
         return next(self._backbone().parameters()).device
 
     def forward(self, batch: Batch) -> ModelOutput:
+        if self.hybrid:
+            if batch.num_questions != batch.input_ids.shape[0]:
+                raise ValueError("hybrid backbones answer one question per sequence; do not pack")
+            attention_mask: Any = {
+                "full_attention": batch.attention_mask,
+                "linear_attention": batch.padding_mask,
+            }
+        else:
+            attention_mask = batch.attention_mask
         hidden = self._backbone()(
             input_ids=batch.input_ids,
             position_ids=batch.position_ids,
-            attention_mask=batch.attention_mask,
+            attention_mask=attention_mask,
             use_cache=False,
         ).last_hidden_state
         decision = hidden[batch.q_batch_index, batch.q_readout]  # (Q, H)
@@ -191,6 +204,13 @@ class AssayModel(nn.Module):
     ) -> dict[str, Answer]:
         names = list(questions.keys())
         qs = [questions[n] for n in names]
+        if self.hybrid:
+            packs = [
+                encode(self.tokenizer, self.alphabet, state, [q], orders=[identity_order(q)], max_state_tokens=max_state_tokens)
+                for q in qs
+            ]
+            answers = [a[0] for a in self.answer_packed(packs, [[q] for q in qs])]
+            return dict(zip(names, answers))
         packed = encode(
             self.tokenizer,
             self.alphabet,
