@@ -102,6 +102,23 @@ published on it), `jabr/classifier-benchmark` (78 cases, 8 tasks).
 ### Fast zero-shot classifiers (encoder route)
 - GLiClass (2025), GLiNER2, ModernBERT zero-shot: 10x faster than cross-encoders, single pass,
   but weaker on knowledge/reasoning-shaped questions; von took this route.
+- Late interaction (ColBERT, Khattab & Zaharia 2020): keep token-level state embeddings and
+  let a compact query interact with them, instead of one pooled vector per side. Our compiled
+  tier is late interaction with a learned reader: the question is compiled into query slots
+  and option vectors, the decision is cross-attention plus a bilinear score, so the state is
+  encoded once and reused across questions and the answer is scored by option content.
+
+### Abstention with a guarantee
+- Split conformal prediction (Vovk et al. 2005; Papadopoulos 2002): with a held-out
+  calibration set, the set {k : p_k >= 1 - q} contains the label with probability >= 1 - alpha
+  on exchangeable inputs; least-ambiguous-set scores (Sadinle, Lei & Wasserman 2019) give the
+  smallest sets when the model is calibrated.
+- Learn-then-Test (Angelopoulos, Bates et al. 2021): risk control for a chosen threshold by
+  testing each candidate with a valid p-value and correcting for multiplicity. We use the
+  plain Bonferroni version over a grid of confidence thresholds with one-sided binomial tests,
+  which needs no monotonicity assumption and is a few lines of code.
+- The guarantees are about the calibration distribution; the reports show how they carry
+  over to unseen tasks, which is the number an operator needs.
 
 ## 4. Design conclusions (what is ours)
 
@@ -122,6 +139,12 @@ published on it), `jabr/classifier-benchmark` (78 cases, 8 tasks).
    prefill, no decoding. Standard now; we adopt it and do not claim it.
 6. Evaluate calibration properly: Brier, NLL, ECE, confident-error rate, on task families the
    model never saw, plus kev transfer-v4 for a public head-to-head with Kev and Jev.
+7. Post-hoc thresholds with finite-sample guarantees (conformal sets, a tested act threshold)
+   fitted on the same calibration split as the temperature, so "act or abstain" is a stated
+   error rate rather than a hand-picked cutoff.
+8. A second, generation-free architecture (`assay.compiled`): the question compiled into
+   parameters, the state into token embeddings, a decision computed between the two. Same
+   typed interface, same targets, same evaluation; a different point on the cost curve.
 
 ## 5. Sources
 
@@ -134,4 +157,5 @@ published on it), `jabr/classifier-benchmark` (78 cases, 8 tasks).
 - arXiv 2207.05221 (Kadavath), 2102.09690 (Zhao), 2309.03882 (PriDe), 2309.17249 (Batch Cal.),
   1706.04599 (Guo), 1906.02629 (Muller), 2408.14141 (Crowd-Calibrator), 2605.29797,
   2603.14092 (SMECE), 2605.23909, 2606.03437, 2508.07662 (GLiClass), SORD (CVPR 2019),
-  Kapoor 2024 (aclanthology 2024.uncertainlp-1.1)
+  Kapoor 2024 (aclanthology 2024.uncertainlp-1.1), 2004.12832 (ColBERT), 2110.01052
+  (Learn-then-Test), Sadinle et al. 2019 (JASA, least-ambiguous set-valued classifiers)
