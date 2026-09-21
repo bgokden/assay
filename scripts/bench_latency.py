@@ -64,8 +64,8 @@ def main() -> None:
     for n in (1, 3, 6, 12, 24):
         qs = questions(n)
         with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
-            packed = timed(lambda: model.answer(STATE, qs))
-            separate = timed(lambda: [model.answer(STATE, {k: v}) for k, v in qs.items()], repeats=5)
+            packed = timed(lambda qs=qs: model.answer(STATE, qs))
+            separate = timed(lambda qs=qs: [model.answer(STATE, {k: v}) for k, v in qs.items()], repeats=5)
         print(f"{n:>9}  {packed:>9.1f}  {separate:>11.1f}")
 
 

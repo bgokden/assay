@@ -144,7 +144,7 @@ def build_attention_mask(block_ids: torch.Tensor) -> torch.Tensor:
 
     Rules: causal; state tokens are visible to all later tokens; a block sees only itself and
     the state; padding is never visible; every token sees itself (keeps softmax finite)."""
-    batch, length = block_ids.shape
+    length = block_ids.shape[1]
     idx = torch.arange(length, device=block_ids.device)
     causal = idx[None, :] <= idx[:, None]
     key_is_state = (block_ids == STATE_BLOCK)[:, None, :]
@@ -167,7 +167,7 @@ class Batch:
     q_num_options: torch.Tensor
     num_questions: int
 
-    def to(self, device: torch.device | str) -> "Batch":
+    def to(self, device: torch.device | str) -> Batch:
         return Batch(
             input_ids=self.input_ids.to(device),
             position_ids=self.position_ids.to(device),

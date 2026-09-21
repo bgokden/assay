@@ -57,7 +57,7 @@ class AssayModel(nn.Module):
         lora_dropout: float = 0.05,
         dtype: torch.dtype = torch.bfloat16,
         device: str = "cuda",
-    ) -> "AssayModel":
+    ) -> AssayModel:
         tokenizer = AutoTokenizer.from_pretrained(base_model_id)
         lm = AutoModelForCausalLM.from_pretrained(
             base_model_id, dtype=dtype, attn_implementation="sdpa"
@@ -81,7 +81,7 @@ class AssayModel(nn.Module):
     @classmethod
     def from_pretrained(
         cls, path: str, dtype: torch.dtype = torch.bfloat16, device: str = "cuda"
-    ) -> "AssayModel":
+    ) -> AssayModel:
         """Load a local directory saved by `save_pretrained`, or a Hub repository published by
         `assay.publish` (merged weights or base + adapter, plus the evidence head)."""
         if not os.path.isdir(path):

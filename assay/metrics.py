@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import collections
 import math
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 import numpy as np
 
@@ -54,7 +55,7 @@ def reliability_table(
 class Scored:
     """One answered question with everything the metrics need."""
 
-    __slots__ = ("probs", "target", "label_index", "qtype", "source", "answerable", "evidence")
+    __slots__ = ("answerable", "evidence", "label_index", "probs", "qtype", "source", "target")
 
     def __init__(
         self,

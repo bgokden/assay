@@ -27,7 +27,8 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 from assay.schema import Question
 

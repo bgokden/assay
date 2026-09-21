@@ -68,7 +68,7 @@ class Question:
         return [str(i) for i in range(len(self.levels))]
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "Question":
+    def from_dict(cls, d: dict[str, Any]) -> Question:
         options = d.get("options")
         if options is not None and isinstance(options, list):
             options = {str(k): None for k in options}
