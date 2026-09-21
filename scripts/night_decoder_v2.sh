@@ -2,25 +2,10 @@
 # Second overnight queue: decoder runs with the content-scored option term, started once the
 # first queue (unit "night") has finished.
 #
-#   systemd-run --user --unit night2 -p WorkingDirectory=$PWD scripts/night_decoder_v2.sh
+#   systemd-run --user --unit night2 -p WorkingDirectory=$PWD -p CPUAffinity=0-5,7-23 scripts/night_decoder_v2.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."
-mkdir -p runs/night
-LOG=runs/night/queue.log
-log() { echo "[$(date '+%F %T')] $*" | tee -a "$LOG"; }
-
-stage() {  # name, cmd...
-  local name="$1"; shift
-  mkdir -p "runs/$name"
-  if [ -f "runs/$name/eval-transfer-v4-scaled.json" ]; then log "skip $name (done)"; return 0; fi
-  for attempt in 1 2 3; do
-    log "start $name attempt $attempt: $*"
-    if "$@" >> "runs/$name/run.log" 2>&1; then log "done $name"; return 0; fi
-    log "failed $name (exit $?)"
-    sleep 30
-  done
-  return 1
-}
+source scripts/stage.sh
 
 while systemctl --user is-active --quiet night; do sleep 60; done
 log "second queue starting"

@@ -1,27 +1,11 @@
 #!/usr/bin/env bash
 # Overnight queue: compiled-function and cross-encoder tiers, then second seeds for the
-# decoders. Each stage retries on failure (sporadic native crashes on this GPU); decoder
-# stages resume from their checkpoints.
+# decoders. See scripts/stage.sh for retries, stall detection and resume.
 #
-#   systemd-run --user --unit night -p WorkingDirectory=$PWD scripts/night_encoders.sh
+#   systemd-run --user --unit night -p WorkingDirectory=$PWD -p CPUAffinity=0-5,7-23 scripts/night_encoders.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."
-mkdir -p runs/night
-LOG=runs/night/queue.log
-log() { echo "[$(date '+%F %T')] $*" | tee -a "$LOG"; }
-
-stage() {  # name, cmd...
-  local name="$1"; shift
-  mkdir -p "runs/$name"
-  if [ -f "runs/$name/eval-transfer-v4-scaled.json" ] || [ -f "runs/$name/eval-transfer-v4-zeroshot.json" ]; then log "skip $name (done)"; return 0; fi
-  for attempt in 1 2 3; do
-    log "start $name attempt $attempt: $*"
-    if "$@" >> "runs/$name/run.log" 2>&1; then log "done $name"; return 0; fi
-    log "failed $name (exit $?)"
-    sleep 30
-  done
-  return 1
-}
+source scripts/stage.sh
 
 GENERIC=data/distill/generic.jsonl
 COMPILED="uv run python -X faulthandler -m assay.train_compiled"
