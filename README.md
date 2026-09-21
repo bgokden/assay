@@ -13,7 +13,7 @@ so a request with twenty questions costs about the same as a request with one.
 from assay.model import AssayModel
 from assay.schema import Question
 
-model = AssayModel.from_pretrained("runs/assay-4b")
+model = AssayModel.from_pretrained("Berk/assay-4b")
 
 answers = model.answer(
     state="Hi, I've been trying to connect my Stripe account for 3 days and the integration "
@@ -71,7 +71,8 @@ distribution, 1 for a one-hot. Option descriptions are free text; write them as 
    targets are what make it calibrated. Choice options are shuffled per example so label
    letters carry no positional prior.
 4. **Evidence head.** A linear head on the decision token predicts whether the state supports
-   the question, trained on passage-swapped reading-comprehension pairs.
+   the question, trained on passage-swapped reading-comprehension pairs and on synthetic policy
+   cases where a fact the rule needs is missing.
 5. **One global temperature** fitted on a calibration split of the training tasks and applied
    unchanged to unseen tasks.
 
@@ -79,14 +80,43 @@ See `docs/research.md` for the literature and the community landscape this build
 
 ## Results
 
-Filled in from `runs/*/eval-*.json`; see the model cards on Hugging Face.
+Models: [Berk/assay-4b](https://huggingface.co/Berk/assay-4b) and
+[Berk/assay-1.7b](https://huggingface.co/Berk/assay-1.7b) (merged weights, adapter, evidence
+head and model card in each repository). Cells are accuracy / Brier / ECE, single seed.
+
+| model | seen tasks (dev, n=5513) | unseen tasks (holdout, n=2020) | kev transfer-v4 (n=764) |
+|---|---|---|---|
+| Qwen3-1.7B-Base, untrained | 0.542 / 0.551 / 0.077 | 0.623 / 0.456 / 0.070 | 0.588 / 0.495 / 0.116 |
+| **assay-1.7b** | 0.740 / 0.355 / 0.035 | 0.752 / 0.334 / 0.024 | 0.670 / 0.436 / 0.115 |
+| Qwen3-4B-Base, untrained | 0.640 / 0.452 / 0.032 | 0.740 / 0.356 / 0.042 | 0.707 / 0.383 / 0.051 |
+| **assay-4b** | 0.776 / 0.304 / 0.037 | 0.798 / 0.280 / 0.021 | 0.770 / 0.307 / 0.067 |
+
+Trained rows are after temperature scaling (fitted on seen-task calibration data only); raw
+numbers are in the model cards and `runs/*/eval-*.json`. "Unseen tasks" are eleven datasets
+never trained on. The transfer suite is public and its sources are excluded from training; for
+reference, its authors report Kev-8B at 0.774 / 0.339 and Jev at 0.857 / 0.211 on the same
+items (their Brier definition may differ from ours).
+
+What the training changed on the transfer suite for the 4B, untrained -> trained: MMLU 0.647 ->
+0.707, policy composition families 0.34-0.66 -> 0.75-0.84, authorization 1.00 -> 1.00 (Brier
+0.07 -> 0.00), deadline 0.30 -> 0.60, QNLI 0.89 -> 0.90, tweet offensive 0.68 -> 0.70, emotion
+0.57 -> 0.60, SciQ 0.95 -> 0.94, PAWS 0.76 -> 0.73 (the one regression, with confident errors).
+
+**Soft versus hard targets** (1.7B, same data and seed): soft targets lower raw ECE on unseen
+tasks from 0.060 to 0.047 and confident errors from 7.7% to 6.5% on the transfer suite, but
+after one fitted temperature the two are within noise (holdout Brier 0.334 vs 0.338). At this
+scale the readout design and a single temperature do most of the calibration work; soft
+targets are a modest, consistent extra.
+
+**Latency** (RTX 5090, bf16, plain transformers, 4B): 23 ms for one question, 57 ms for 24
+questions packed over the same state, versus 548 ms as 24 separate requests.
 
 ## Install and run
 
 ```bash
 uv sync
 uv run pytest                                             # unit tests (downloads Qwen3-0.6B)
-uv run python -m assay.server --model runs/assay-4b       # POST /v1/decide on :8000
+uv run python -m assay.server --model Berk/assay-4b       # POST /v1/decide on :8000
 ```
 
 ```bash
@@ -102,9 +132,13 @@ curl -s localhost:8000/v1/decide -H 'content-type: application/json' -d '{
 ## Reproduce
 
 ```bash
-uv run python -m assay.data.build --out data/v1          # 66 public tasks -> jsonl
-scripts/run_experiment.sh Qwen/Qwen3-4B-Base runs/assay-4b data/v1
+uv run python -m assay.data.build --out data/v2          # 66 public tasks + policy cases -> jsonl
+scripts/run_experiment.sh Qwen/Qwen3-4B-Base runs/assay-4b data/v2 --checkpoint-every 500
+uv run python -m assay.publish --run runs/assay-4b --repo <user>/assay-4b
 ```
+
+The 4B run takes 47 minutes on one RTX 5090 (LoRA r=16, lr 5e-5, batch 8, one epoch over
+54,350 examples); the 1.7B takes 23 minutes.
 
 `data/suites/kev-transfer-v4-dev.jsonl` is the public transfer suite from
 [jaredpalmer/kev-suites](https://huggingface.co/datasets/jaredpalmer/kev-suites); none of its
@@ -114,8 +148,10 @@ sources are in Assay's training data.
 
 Text only. No arithmetic, counting, date comparison or multi-hop reasoning: one forward pass
 cannot do them, so keep those in code. Accuracy drops as unrelated state grows; filter first.
-The evidence head is trained on swapped-passage negatives, which is a coarse notion of
-"unsupported"; treat it as a first filter, not a proof.
+The evidence head is trained on swapped-passage and missing-fact negatives, which is a coarse
+notion of "unsupported"; treat it as a first filter, not a proof. Probabilities are calibrated
+in aggregate on the distributions above, which says nothing about any single answer or about
+your data: check calibration on your own labels before acting on thresholds.
 
 ## License
 

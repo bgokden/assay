@@ -53,6 +53,20 @@ def write_model_card(run: str, repo: str, base: str, out_path: str) -> None:
     table = "\n".join(
         ["| split | n | accuracy | Brier | NLL | ECE | confident errors |", "|---|---|---|---|---|---|---|"] + rows
     )
+    by_source = ""
+    path = os.path.join(run, "eval-transfer-v4-scaled.json")
+    if os.path.exists(path):
+        with open(path) as f:
+            groups = json.load(f)["by_source"]
+        lines = ["| transfer-v4 source | n | accuracy | Brier | ECE |", "|---|---|---|---|---|"]
+        for name, o in groups.items():
+            lines.append(f"| {name} | {o['count']} | {o['accuracy']:.3f} | {o['brier']:.3f} | {o['ece']:.3f} |")
+        by_source = "\n".join(lines)
+    latency = ""
+    path = os.path.join(run, "latency.txt")
+    if os.path.exists(path):
+        with open(path) as f:
+            latency = "Latency on one RTX 5090 (bf16, transformers, packed questions over one state versus separate requests):\n\n```\n" + f.read().strip() + "\n```\n"
     temperature = calibration.get("temperature", 1.0)
     card = f"""---
 license: apache-2.0
@@ -107,6 +121,9 @@ emotion, sciq, tweet_offensive, qnli, paws and synthetic rule holdouts); none of
 are in the training data. Brier is the multi-class sum of squared errors (0..2), ECE uses 15
 bins, confident errors are answers with p >= 0.9 that are wrong.
 
+{by_source}
+
+{latency}
 ## Usage
 
 ```python
