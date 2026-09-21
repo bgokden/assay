@@ -29,20 +29,22 @@ CONFIG_FILE = "assay_compiled_config.json"
 WEIGHTS_FILE = "assay_compiled.safetensors"
 
 
-def option_texts(q: Question) -> list[str]:
-    """One text per option in canonical key order, carrying the instruction as context."""
-    ins = q.instructions.strip()
+def option_texts(q: Question, with_instructions: bool = False) -> list[str]:
+    """One text per option in canonical key order. The compiled tiers encode option content
+    only (the instruction goes into the queries, so option vectors stay distinct); the
+    cross-encoder puts the instruction in front because its pair text is all it sees."""
+    prefix = f"{q.instructions.strip()} " if with_instructions else ""
     if q.type == "bool":
         yes = q.yes.strip() if q.yes else "the answer is yes"
         no = q.no.strip() if q.no else "the answer is no"
-        return [f"{ins} Yes: {yes}", f"{ins} No: {no}"]
+        return [f"{prefix}Yes: {yes}", f"{prefix}No: {no}"]
     if q.type == "choice":
         out = []
         for key, desc in q.options.items():
             shown = key.replace("_", " ")
-            out.append(f"{ins} Option: {shown}" + (f": {desc}" if desc else ""))
+            out.append(f"{prefix}{shown}" + (f": {desc}" if desc else ""))
         return out
-    return [f"{ins} Level {i + 1} of {len(q.levels)}: {lvl}" for i, lvl in enumerate(q.levels)]
+    return [f"{prefix}Level {i + 1} of {len(q.levels)}: {lvl}" for i, lvl in enumerate(q.levels)]
 
 
 @dataclasses.dataclass
@@ -286,7 +288,7 @@ class CrossEncoderModel(CompiledModel):
         pairs: list[str] = []
         counts: list[int] = []
         for text, q in zip(state_texts, questions):
-            opts = option_texts(q)
+            opts = option_texts(q, with_instructions=True)
             pairs.extend(f"{o}{self.tokenizer.sep_token or ' | '}{text}" for o in opts)
             counts.append(len(opts))
         hidden, mask = self.encode_tokens(pairs, self.max_pair_tokens)
