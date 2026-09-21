@@ -41,7 +41,17 @@ evidence head (no merged upload; users load the 4-bit base).
 Expected: 0.83-0.85 on the transfer suite, calibration in line with the smaller models.
 Drop if: it does not beat assay-4b on the unseen-task holdout after scaling.
 
-### 2. Distillation set from the 27B
+### 2. Distillation set from the 27B (run 2026-09-21; partly dropped)
+
+Result on a 4B retrained with 40k teacher-labelled generic questions plus 5k hard policy cases
+and 6k date cases (data v3): transfer 0.791 / 0.284 / 0.050 (from 0.770 / 0.307 / 0.067),
+holdout 0.794 / 0.287 / 0.036 (from 0.798 / 0.280 / 0.021). The gain is entirely from the
+exact-label synthetic families: deadline 0.60 -> 0.975, composition +3 to +12 points. The
+teacher-labelled generic data moved nothing on unseen tasks and drifted knowledge and style
+families slightly down. Conclusion: at 4B the generic tasks are capacity-limited; targeted
+skill families with exact labels are the lever. Kept: `assay.data.policy` (hard mode) and
+`assay.data.dates`. Dropped: generic teacher labels for decoder training (they may still
+serve the compiled-function tier, which is data-limited by construction).
 
 The 27B labels about 100k new inputs with its temperature-scaled probabilities: harder policy
 cases (deeper rule nesting, more predicate types), date cases (varied formats, thresholds),
