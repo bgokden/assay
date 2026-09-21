@@ -22,7 +22,7 @@ STATE = (
 
 def questions(n: int) -> dict[str, Question]:
     pool = [
-        Question(type="noul", instructions="Does the message convey urgency?"),
+        Question(type="bool", instructions="Does the message convey urgency?"),
         Question(
             type="choice",
             instructions="Which team should handle this?",
@@ -33,8 +33,8 @@ def questions(n: int) -> dict[str, Question]:
             instructions="How frustrated is the customer?",
             levels=["Calm", "Frustrated but civil", "Very angry"],
         ),
-        Question(type="noul", instructions="Has the customer already tried a fix?"),
-        Question(type="noul", instructions="Does the customer mention money?"),
+        Question(type="bool", instructions="Has the customer already tried a fix?"),
+        Question(type="bool", instructions="Does the customer mention money?"),
         Question(
             type="choice",
             instructions="What does the customer want most?",

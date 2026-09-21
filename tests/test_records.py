@@ -17,7 +17,7 @@ def test_parse_criteria_style_record():
                 "src": "mmlu",
             },
             "flag": {
-                "type": "noul",
+                "type": "bool",
                 "instructions": "Is it?",
                 "criteria": {"true": "yes desc", "false": "no desc"},
                 "label": False,
@@ -50,3 +50,12 @@ def test_write_then_parse_roundtrip_with_soft_target():
     assert lq.target == [0.7, 0.3]
     assert lq.answerable is False
     assert lq.question.options == {"x": "ex", "y": None}
+
+
+def test_noul_alias_is_read_as_bool():
+    q = Question(type="noul", instructions="Is it?")
+    assert q.type == "bool"
+    assert q.keys == ["yes", "no"]
+    r = parse_record({"state": "s", "questions": {"q": {"type": "noul", "instructions": "Is it?", "label": True}}})
+    assert r.questions[0].question.type == "bool"
+    assert r.questions[0].label_index == 0

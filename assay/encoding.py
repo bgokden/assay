@@ -62,7 +62,7 @@ def _option_line(label: str, key: str, description: str | None) -> str:
 def render_question(question: Question, alphabet: LabelAlphabet, order: list[int]) -> str:
     """Text of one question block. `order` lists canonical option indices in display order."""
     lines = [f"\nQuestion: {question.instructions.strip()}"]
-    if question.type == "noul":
+    if question.type == "bool":
         if question.yes is not None:
             lines.append(f"yes: {question.yes.strip()}")
         if question.no is not None:
@@ -119,7 +119,7 @@ def encode(
         position_ids.extend(range(state_len, state_len + len(block)))
         block_ids.extend([k] * len(block))
         end = len(input_ids)
-        if question.type == "noul":
+        if question.type == "bool":
             option_token_ids = [alphabet.yes_id, alphabet.no_id]
         else:
             # canonical index -> display position -> label token

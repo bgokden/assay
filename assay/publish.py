@@ -85,7 +85,7 @@ language:
 # {repo.split('/')[-1]}
 
 Calibrated typed decisions from one forward pass. Send a state and named typed questions
-(`noul` yes/no, `choice` over 2..255 described options, `score` over 2..10 ordered levels);
+(`bool` yes/no, `choice` over 2..255 described options, `score` over 2..10 ordered levels);
 get a probability distribution per question, a confidence and an evidence score. No text is
 generated, so nothing can come back off-schema.
 
@@ -133,12 +133,12 @@ model = AssayModel.from_pretrained("{repo}")
 answers = model.answer(
     state="My card was charged twice for order A-104.",
     questions={{
-        "refund": Question(type="noul", instructions="Does the customer ask for money back?"),
+        "refund": Question(type="bool", instructions="Does the customer ask for money back?"),
         "team": Question(type="choice", instructions="Which team should handle this?",
                          options={{"billing": "Charges and refunds", "technical": "Bugs"}}),
     }},
 )
-print(answers["team"].probabilities, answers["refund"].noul, answers["refund"].evidence)
+print(answers["team"].probabilities, answers["refund"].p_true, answers["refund"].evidence)
 ```
 
 ## Limitations

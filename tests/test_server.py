@@ -23,7 +23,7 @@ def test_decide_returns_all_answer_types(client):
     body = {
         "state": {"message": "My card was charged twice for order A-104. Please refund me."},
         "questions": {
-            "refund": {"type": "noul", "instructions": "Does the customer ask for money back?"},
+            "refund": {"type": "bool", "instructions": "Does the customer ask for money back?"},
             "team": {
                 "type": "choice",
                 "instructions": "Which team should handle `message`?",
@@ -43,7 +43,7 @@ def test_decide_returns_all_answer_types(client):
     assert out["usage"]["input_tokens"] > 0
     a = out["answers"]
     assert set(a) == {"refund", "team", "anger"}
-    assert 0.0 <= a["refund"]["noul"] <= 1.0
+    assert 0.0 <= a["refund"]["p_true"] <= 1.0
     assert a["team"]["choice"] in ("billing", "technical")
     assert abs(sum(a["team"]["probabilities"].values()) - 1.0) < 1e-3
     assert 0.0 <= a["anger"]["score"] <= 2.0

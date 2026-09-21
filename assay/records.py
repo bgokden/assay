@@ -6,11 +6,11 @@ One JSON object per line:
       "state": <str | object | list>,
       "questions": {
         "<name>": {
-          "type": "noul" | "choice" | "score",
+          "type": "bool" | "choice" | "score",   ("noul" is read as "bool")
           "instructions": str,
           "options": {key: description | null}     (choice)
           "levels": [str, ...]                      (score)
-          "yes": str | null, "no": str | null       (noul, optional)
+          "yes": str | null, "no": str | null       (bool, optional)
           "label": key | true | false | int         (the hard label)
           "target": {key: probability}              (optional soft label over keys)
           "answerable": bool                        (optional, default true)
@@ -52,7 +52,7 @@ class Record:
 
 def _label_to_index(question: Question, label: Any) -> int:
     keys = question.keys
-    if question.type == "noul":
+    if question.type == "bool":
         if isinstance(label, str):
             label = label.strip().lower() in ("true", "yes", "1")
         return 0 if bool(label) else 1
@@ -74,7 +74,7 @@ def _question_from_criteria(q: dict[str, Any]) -> Question:
     if isinstance(criteria, dict):
         yes = criteria.get("true", criteria.get("yes"))
         no = criteria.get("false", criteria.get("no"))
-    return Question(type="noul", instructions=q["instructions"], yes=yes, no=no)
+    return Question(type="bool", instructions=q["instructions"], yes=yes, no=no)
 
 
 def parse_question(name: str, q: dict[str, Any], default_source: str) -> LabeledQuestion:

@@ -19,11 +19,12 @@ MAX_LEVELS = 10
 class Question:
     """One typed question.
 
-    type: "noul" (is the statement true), "choice" (pick one option) or "score" (ordered levels).
+    type: "bool" (is the statement true), "choice" (pick one option) or "score" (ordered levels).
+    "noul" is accepted as an alias of "bool" for records written in other tools' format.
     instructions: the question in plain language, may reference state fields.
     options: choice only, ordered mapping option key -> description (description may be None).
     levels: score only, ordered level descriptions from lowest to highest.
-    yes, no: noul only, optional descriptions of what makes the answer yes or no.
+    yes, no: bool only, optional descriptions of what makes the answer yes or no.
     """
 
     type: str
@@ -34,7 +35,9 @@ class Question:
     no: str | None = None
 
     def __post_init__(self) -> None:
-        if self.type not in ("noul", "choice", "score"):
+        if self.type == "noul":
+            object.__setattr__(self, "type", "bool")
+        if self.type not in ("bool", "choice", "score"):
             raise ValueError(f"unknown question type {self.type!r}")
         if not self.instructions or not self.instructions.strip():
             raise ValueError("instructions must not be empty")
@@ -54,14 +57,14 @@ class Question:
                 raise ValueError("score takes levels, not options")
         else:
             if self.options is not None or self.levels is not None:
-                raise ValueError("noul takes neither options nor levels")
-        if self.type != "noul" and (self.yes is not None or self.no is not None):
-            raise ValueError("yes/no descriptions apply to noul only")
+                raise ValueError("bool takes neither options nor levels")
+        if self.type != "bool" and (self.yes is not None or self.no is not None):
+            raise ValueError("yes/no descriptions apply to bool only")
 
     @property
     def keys(self) -> list[str]:
         """Option identifiers in the order the answer distribution uses."""
-        if self.type == "noul":
+        if self.type == "bool":
             return ["yes", "no"]
         if self.type == "choice":
             return list(self.options.keys())
@@ -101,8 +104,13 @@ class Answer:
         return max(self.probabilities, key=self.probabilities.get)
 
     @property
-    def noul(self) -> float:
+    def p_true(self) -> float:
         return self.probabilities["yes"]
+
+    @property
+    def noul(self) -> float:
+        """Alias of p_true kept for requests written in the other tools' vocabulary."""
+        return self.p_true
 
     @property
     def score(self) -> float:
@@ -110,8 +118,8 @@ class Answer:
 
     def to_dict(self, question: Question) -> dict[str, Any]:
         out: dict[str, Any] = {"type": self.type}
-        if self.type == "noul":
-            out["noul"] = round(self.noul, 4)
+        if self.type == "bool":
+            out["p_true"] = round(self.p_true, 4)
         elif self.type == "choice":
             out["choice"] = self.argmax
         else:

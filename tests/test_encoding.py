@@ -28,7 +28,7 @@ def test_question_validation():
     with pytest.raises(ValueError):
         Question(type="score", instructions="x", levels=["one"])
     with pytest.raises(ValueError):
-        Question(type="noul", instructions="x", options={"a": None, "b": None})
+        Question(type="bool", instructions="x", options={"a": None, "b": None})
     q = Question(type="score", instructions="x", levels=["low", "high"])
     assert q.keys == ["0", "1"]
 
@@ -57,7 +57,7 @@ def tok_alphabet():
 def test_encode_positions_restart(tok_alphabet):
     tok, alphabet = tok_alphabet
     qs = [
-        Question(type="noul", instructions="Is it urgent?"),
+        Question(type="bool", instructions="Is it urgent?"),
         Question(type="choice", instructions="Team?", options={"billing": "money", "tech": "bugs"}),
     ]
     packed = encode(tok, alphabet, "The site is down.", qs)
@@ -84,7 +84,7 @@ def test_encode_shuffled_order_maps_labels(tok_alphabet):
 
 def test_collate_shapes(tok_alphabet):
     tok, alphabet = tok_alphabet
-    q1 = [Question(type="noul", instructions="a?")]
+    q1 = [Question(type="bool", instructions="a?")]
     q2 = [
         Question(type="choice", instructions="b?", options={"p": None, "q": None, "r": None}),
         Question(type="score", instructions="c?", levels=["lo", "hi"]),

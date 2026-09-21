@@ -36,7 +36,7 @@ QUESTIONS = {
         instructions="How frustrated does the customer appear?",
         levels=["Calm, just stating facts", "Frustrated but civil", "Very angry, strong language"],
     ),
-    "is_urgent": Question(type="noul", instructions="Does the message convey urgency?"),
+    "is_urgent": Question(type="bool", instructions="Does the message convey urgency?"),
 }
 
 
@@ -53,7 +53,7 @@ def test_packed_equals_separate(model):
 def test_zero_shot_is_sensible(model):
     answers = model.answer(STATE, QUESTIONS)
     assert answers["department"].argmax == "technical"
-    assert answers["is_urgent"].noul > 0.5
+    assert answers["is_urgent"].p_true > 0.5
     assert 0.0 <= answers["frustration"].score <= 2.0
     for a in answers.values():
         assert abs(sum(a.probabilities.values()) - 1.0) < 1e-5

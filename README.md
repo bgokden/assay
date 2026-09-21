@@ -33,13 +33,13 @@ answers = model.answer(
             instructions="How frustrated does the customer appear?",
             levels=["Calm, just stating facts", "Frustrated but civil", "Very angry"],
         ),
-        "is_urgent": Question(type="noul", instructions="Does the message convey urgency?"),
+        "is_urgent": Question(type="bool", instructions="Does the message convey urgency?"),
     },
 )
 answers["department"].argmax        # "technical"
 answers["department"].probabilities # {"billing": 0.05, "technical": 0.93, "sales": 0.02}
 answers["frustration"].score        # 1.2  (probability-weighted level)
-answers["is_urgent"].noul           # 0.97
+answers["is_urgent"].p_true           # 0.97
 answers["is_urgent"].evidence       # 0.99 (the state supports answering this)
 ```
 
@@ -47,7 +47,7 @@ answers["is_urgent"].evidence       # 0.99 (the state supports answering this)
 
 | type | asks | answer fields |
 |---|---|---|
-| `noul` | is this statement true? | `noul` = P(yes) |
+| `bool` | is this statement true? | `p_true` = P(yes) |
 | `choice` | which one of these options? (2..255) | `choice`, `probabilities`, `confidence` |
 | `score` | where on this ordered scale? (2..10 levels) | `score` (expected level), `level`, `probabilities`, `confidence` |
 
@@ -123,7 +123,7 @@ uv run python -m assay.server --model Berk/assay-4b       # POST /v1/decide on :
 curl -s localhost:8000/v1/decide -H 'content-type: application/json' -d '{
   "state": "My card was charged twice for order A-104.",
   "questions": {
-    "refund": {"type": "noul", "instructions": "Does the customer ask for money back?"},
+    "refund": {"type": "bool", "instructions": "Does the customer ask for money back?"},
     "team": {"type": "choice", "instructions": "Which team should handle this?",
              "options": {"billing": "Charges and refunds", "technical": "Bugs and outages"}}
   }}'

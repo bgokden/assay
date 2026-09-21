@@ -25,8 +25,8 @@ def test_ece_perfect_and_worst():
 
 def test_summarize_basic():
     items = [
-        Scored([0.7, 0.3], [1.0, 0.0], 0, "noul", "a", True, 0.9),
-        Scored([0.2, 0.8], [1.0, 0.0], 0, "noul", "a", True, 0.1),
+        Scored([0.7, 0.3], [1.0, 0.0], 0, "bool", "a", True, 0.9),
+        Scored([0.2, 0.8], [1.0, 0.0], 0, "bool", "a", True, 0.1),
     ]
     s = summarize(items)
     assert s["accuracy"] == 0.5
