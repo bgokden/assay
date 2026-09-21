@@ -8,11 +8,16 @@ Request:
                             "options": {...} | "levels": [...] | "yes": "...", "no": "..."}}}
 Response:
     {"model": "...", "answers": {"name": {...}}, "usage": {"input_tokens": n}, "latency_ms": t}
+
+When the model directory holds conformal.json (see assay.conformal), every answer also
+carries "act" (the top answer is confident enough for the fitted error rate) and "set"
+(the options that cannot be ruled out at the fitted coverage).
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import time
 from typing import Any
@@ -22,6 +27,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from assay.conformal import CONFORMAL_FILE, decorate
 from assay.encoding import encode, identity_order
 from assay.model import AssayModel
 from assay.schema import Question
@@ -32,8 +38,21 @@ class DecideRequest(BaseModel):
     questions: dict[str, dict[str, Any]] = Field(min_length=1)
 
 
-def create_app(model: AssayModel, model_name: str, max_state_tokens: int = 4096) -> FastAPI:
-    app = FastAPI(title="assay", version="0.3.0")
+def load_conformal(model_dir: str) -> dict[str, Any] | None:
+    path = os.path.join(model_dir, CONFORMAL_FILE)
+    if not os.path.isdir(model_dir) or not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
+def create_app(
+    model: AssayModel,
+    model_name: str,
+    max_state_tokens: int = 4096,
+    conformal: dict[str, Any] | None = None,
+) -> FastAPI:
+    app = FastAPI(title="assay", version="0.4.0")
 
     @app.get("/v1/models")
     def models() -> dict[str, Any]:
@@ -59,9 +78,13 @@ def create_app(model: AssayModel, model_name: str, max_state_tokens: int = 4096)
         with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
             answers = model.answer_packed([packed], [qs])[0]
         elapsed = (time.perf_counter() - t0) * 1000.0
+        out = {n: a.to_dict(questions[n]) for n, a in zip(names, answers)}
+        if conformal is not None:
+            for n in names:
+                decorate(out[n], questions[n], conformal)
         return {
             "model": model_name,
-            "answers": {n: a.to_dict(questions[n]) for n, a in zip(names, answers)},
+            "answers": out,
             "usage": {"input_tokens": len(packed)},
             "latency_ms": round(elapsed, 1),
         }
@@ -81,7 +104,8 @@ def main() -> None:
     model = load_model(args.model)
     model.eval()
     name = os.path.basename(args.model.rstrip("/")) or args.model
-    uvicorn.run(create_app(model, name, args.max_state_tokens), host=args.host, port=args.port)
+    app = create_app(model, name, args.max_state_tokens, conformal=load_conformal(args.model))
+    uvicorn.run(app, host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

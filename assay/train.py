@@ -184,7 +184,6 @@ def main() -> None:
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
     log_path = os.path.join(args.out, "train_log.jsonl")
-    log = open(log_path, "a")
     step = 0
     update = 0
     checkpoint_dir = os.path.join(args.out, "checkpoint")
@@ -239,11 +238,10 @@ def main() -> None:
                     "elapsed": time.time() - t0,
                 }
                 print(json.dumps(entry), flush=True)
-                log.write(json.dumps(entry) + "\n")
-                log.flush()
+                append_log(log_path, entry)
                 running = {"loss": 0.0, "answer": 0.0, "evidence": 0.0, "n": 0}
             if args.eval_every and step % args.eval_every == 0:
-                evaluate_and_log(model, dev, log, step, args)
+                evaluate_and_log(model, dev, log_path, step, args)
                 model.train()
             if args.checkpoint_every and step % args.checkpoint_every == 0 and step % args.grad_accum == 0:
                 save_checkpoint(checkpoint_dir, model, optimizer, scheduler, step, update)
@@ -251,8 +249,12 @@ def main() -> None:
             break
     model.save_pretrained(args.out)
     print(f"saved to {args.out} after {step} steps, {time.time() - t0:.0f}s")
-    evaluate_and_log(model, dev, log, step, args)
-    log.close()
+    evaluate_and_log(model, dev, log_path, step, args)
+
+
+def append_log(path: str, entry: dict) -> None:
+    with open(path, "a") as f:
+        f.write(json.dumps(entry) + "\n")
 
 
 def trainable_state(model: AssayModel) -> dict[str, torch.Tensor]:
@@ -296,7 +298,7 @@ def load_checkpoint(path: str, model: AssayModel, optimizer, scheduler) -> tuple
     return state["step"], state["update"]
 
 
-def evaluate_and_log(model: AssayModel, dev: list[Record], log, step: int, args) -> None:
+def evaluate_and_log(model: AssayModel, dev: list[Record], log_path: str, step: int, args) -> None:
     model.eval()
     torch.cuda.empty_cache()
     with torch.autocast("cuda", dtype=torch.bfloat16):
@@ -304,8 +306,7 @@ def evaluate_and_log(model: AssayModel, dev: list[Record], log, step: int, args)
     rep = report(scored)
     print(f"--- dev at step {step} ---")
     print(format_report(rep))
-    log.write(json.dumps({"step": step, "dev": rep["overall"], "dev_by_source": rep["by_source"]}) + "\n")
-    log.flush()
+    append_log(log_path, {"step": step, "dev": rep["overall"], "dev_by_source": rep["by_source"]})
     with open(os.path.join(args.out, f"dev_step{step}.json"), "w") as f:
         json.dump(rep, f, indent=2)
 
