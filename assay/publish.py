@@ -78,7 +78,6 @@ tags:
   - calibrated
   - decision-model
   - zero-shot-classification
-  - system-one
 language:
   - en
 ---
@@ -153,8 +152,17 @@ data; check calibration on your own labels before acting on thresholds.
 ## Training data
 
 Fifty-five public classification, inference, reading-comprehension and preference datasets
-rendered as typed questions with described options (see `assay/data/tasks.py` in the
-repository for the full list and rubrics). Each dataset keeps its own license.
+rendered as typed questions with described options, plus a synthetic policy-application
+generator (see `assay/data/tasks.py` in the repository for the rubrics). Each dataset keeps
+its own licence; the per-dataset list is in
+[docs/datasets.md](https://github.com/bgokden/assay/blob/master/docs/datasets.md). Several
+sources carry non-commercial or research-only terms; check them before commercial use.
+
+## Relationship to other work
+
+Assay is an independent project. Jev and System One are names of TypeSafe AI's products and
+are mentioned only to describe and compare; kev-suites is Jared Palmer's evaluation data.
+Assay is not affiliated with or endorsed by either.
 """
     with open(out_path, "w") as f:
         f.write(card)

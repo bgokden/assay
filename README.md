@@ -153,6 +153,18 @@ notion of "unsupported"; treat it as a first filter, not a proof. Probabilities 
 in aggregate on the distributions above, which says nothing about any single answer or about
 your data: check calibration on your own labels before acting on thresholds.
 
+## Data licences
+
+Training and evaluation sources with their declared licences are listed in
+[docs/datasets.md](docs/datasets.md). Several carry non-commercial or research-only terms;
+check them before commercial use of the weights.
+
+## Relationship to other work
+
+Assay is an independent project. Jev and System One are names of TypeSafe AI's products and
+are mentioned only to describe and compare; kev-suites is Jared Palmer's evaluation data.
+Assay is not affiliated with or endorsed by either.
+
 ## License
 
 Apache-2.0.
