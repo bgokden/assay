@@ -34,6 +34,34 @@ def flatten(records: list[Record]) -> list[Record]:
     ]
 
 
+def epoch_order(seed: int, epoch: int, n: int) -> list[int]:
+    """Deterministic shuffle per epoch, so a resumed run sees the same batches."""
+    order = list(range(n))
+    random.Random(seed * 1009 + epoch).shuffle(order)
+    return order
+
+
+def save_checkpoint(path: str, model, optimizer, scheduler, step: int) -> None:
+    state = {
+        "model": {k: v.detach().cpu() for k, v in model.state_dict().items()},
+        "optimizer": optimizer.state_dict(),
+        "scheduler": scheduler.state_dict(),
+        "step": step,
+    }
+    torch.save(state, path + ".tmp")
+    os.replace(path + ".tmp", path)
+
+
+def load_checkpoint(path: str, model, optimizer, scheduler) -> int:
+    if not os.path.exists(path):
+        return 0
+    state = torch.load(path, map_location="cpu", weights_only=False)
+    model.load_state_dict(state["model"])
+    optimizer.load_state_dict(state["optimizer"])
+    scheduler.load_state_dict(state["scheduler"])
+    return int(state["step"])
+
+
 def build_targets(batch: list[Record], k_max: int, hard: bool, sigma: float):
     target = torch.zeros((len(batch), k_max))
     answerable = torch.zeros(len(batch))
@@ -167,12 +195,12 @@ def main() -> None:
     ap.add_argument(
         "--pair-budget", type=int, help="max options per batch (default 256 compiled, 64 cross)"
     )
+    ap.add_argument("--checkpoint-every", type=int, default=500)
     args = ap.parse_args()
     if args.pair_budget is None:
         args.pair_budget = 64 if args.arch == "cross" else 256
 
     torch.manual_seed(args.seed)
-    rng = random.Random(args.seed)
     os.makedirs(args.out, exist_ok=True)
     with open(os.path.join(args.out, "train_args.json"), "w") as f:
         json.dump(vars(args), f, indent=2)
@@ -232,15 +260,20 @@ def main() -> None:
         return 0.5 * (1.0 + math.cos(math.pi * min(1.0, progress)))
 
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    checkpoint_path = os.path.join(args.out, "checkpoint.pt")
+    step = load_checkpoint(checkpoint_path, model, optimizer, scheduler)
+    if step:
+        print(f"resumed from step {step}", flush=True)
     t0 = time.time()
-    step = 0
     running = {"loss": 0.0, "answer": 0.0, "evidence": 0.0, "n": 0}
     model.train()
-    done = False
+    done = step >= total
     while not done:
-        order = list(range(len(records)))
-        rng.shuffle(order)
-        for idx in make_batches(records, order, args.batch_size, args.pair_budget):
+        epoch = step // steps_per_epoch
+        batches = make_batches(
+            records, epoch_order(args.seed, epoch, len(records)), args.batch_size, args.pair_budget
+        )
+        for idx in batches[step - epoch * steps_per_epoch :]:
             if step >= total:
                 done = True
                 break
@@ -281,7 +314,9 @@ def main() -> None:
                 with open(os.path.join(args.out, "train_log.jsonl"), "a") as log:
                     log.write(json.dumps(entry) + "\n")
                 running = {"loss": 0.0, "answer": 0.0, "evidence": 0.0, "n": 0}
-        if args.epochs <= 1.0 and not done:
+            if args.checkpoint_every and step % args.checkpoint_every == 0:
+                save_checkpoint(checkpoint_path, model, optimizer, scheduler, step)
+        if step >= total:
             done = True
     model.save_pretrained(args.out)
     print(f"saved to {args.out} after {step} steps, {time.time() - t0:.0f}s", flush=True)
