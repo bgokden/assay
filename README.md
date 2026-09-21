@@ -75,6 +75,13 @@ distribution, 1 for a one-hot. Option descriptions are free text; write them as 
    cases where a fact the rule needs is missing.
 5. **One global temperature** fitted on a calibration split of the training tasks and applied
    unchanged to unseen tasks.
+6. **Abstention with a stated error rate.** `assay.conformal` fits two thresholds per question
+   type on the same calibration split: a prediction-set threshold (split conformal, the set
+   contains the label with probability at least 1 - alpha) and an act threshold on the top
+   probability (one-sided binomial tests over a grid with a Bonferroni correction: among
+   answers above it, the error rate is at most alpha at confidence 1 - delta). The server
+   returns them as `act` and `set` on every answer when `conformal.json` is present. The
+   evidence head says "the state does not say"; this layer says "the model does not know".
 
 See `docs/research.md` for the literature and the community landscape this builds on, and
 `docs/roadmap.md` for what comes next and why.
@@ -150,6 +157,7 @@ uv run python -m assay.data.distill --teacher runs/assay-27b --train data/v2/tra
   --out data/distill --generic 0                          # hard policy and date generators
 cat data/v2/train.jsonl data/distill/policy_hard.jsonl data/distill/dates.jsonl > data/v4/train.jsonl
 scripts/run_experiment.sh Qwen/Qwen3-4B-Base runs/assay-4b data/v4 --checkpoint-every 500
+uv run python -m assay.conformal --model runs/assay-4b --alpha 0.1  # act/set thresholds
 uv run python -m assay.publish --run runs/assay-4b --repo <user>/assay-4b
 ```
 
