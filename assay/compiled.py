@@ -86,6 +86,8 @@ class CompiledModel(nn.Module):
         self.max_state_tokens = 512
         self.max_option_tokens = 96
         self.hybrid = False  # for evaluate.predict compatibility
+        # models saved before 2026-09-22 were trained with the instruction inside every option
+        self.option_instructions = False
 
     # --- construction ---------------------------------------------------------------------
 
@@ -114,6 +116,7 @@ class CompiledModel(nn.Module):
             heads=config["heads"],
             temperature=config.get("temperature", 1.0),
         )
+        model.option_instructions = config.get("option_instructions", True)
         state = safetensors.torch.load_file(os.path.join(path, WEIGHTS_FILE))
         missing, unexpected = model.load_state_dict(state, strict=False)
         missing = [m for m in missing if not m.startswith("encoder.")]
@@ -138,6 +141,7 @@ class CompiledModel(nn.Module):
                     "slots": self.slots.shape[0],
                     "heads": self.attn.num_heads,
                     "temperature": self.temperature,
+                    "option_instructions": self.option_instructions,
                     "arch": arch_name(self),
                 },
                 f,
@@ -183,7 +187,7 @@ class CompiledModel(nn.Module):
         flat: list[str] = []
         counts: list[int] = []
         for q in questions:
-            texts = option_texts(q)
+            texts = option_texts(q, self.option_instructions)
             flat.extend(texts)
             counts.append(len(texts))
         opt_vec = self.encode_unique(flat)  # (sum K, d)
