@@ -2,7 +2,7 @@
 # Fifth overnight queue: the conditioned encoder tier (instruction + state in one pass,
 # compiled options). Starts after unit "night4".
 #
-#   systemd-run --user --unit night5 -p WorkingDirectory=$PWD -p CPUAffinity=0-5,7-23 scripts/night_conditioned.sh
+#   systemd-run --user --unit night5 -p WorkingDirectory=$PWD scripts/night_conditioned.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."
 source scripts/stage.sh

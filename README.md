@@ -208,9 +208,6 @@ The 4B run takes 47 minutes on one RTX 5090 (LoRA r=16, lr 5e-5, batch 8, one ep
 `--quant 4bit --batch-size 4 --grad-accum 2 --eval-batch-size 4 --max-state-tokens 1024`
 (evaluate it with `scripts/eval_all.sh runs/assay-27b data/v2 4 1024`).
 
-Long runs on this machine go through systemd units pinned off one faulty CPU core, with
-stall detection and checkpoint resume; `docs/ops.md` has the evidence and the commands.
-
 `data/suites/kev-transfer-v4-dev.jsonl` is the public transfer suite from
 [jaredpalmer/kev-suites](https://huggingface.co/datasets/jaredpalmer/kev-suites); none of its
 sources are in Assay's training data.

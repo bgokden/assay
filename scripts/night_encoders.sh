@@ -2,7 +2,7 @@
 # Overnight queue: compiled-function and cross-encoder tiers, then second seeds for the
 # decoders. See scripts/stage.sh for retries, stall detection and resume.
 #
-#   systemd-run --user --unit night -p WorkingDirectory=$PWD -p CPUAffinity=0-5,7-23 scripts/night_encoders.sh
+#   systemd-run --user --unit night -p WorkingDirectory=$PWD scripts/night_encoders.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."
 source scripts/stage.sh

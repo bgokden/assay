@@ -2,7 +2,7 @@
 # Fourth overnight queue: the compiled tier with more optimisation (it underfits in one epoch
 # at lr 2e-5: train loss 0.86 against 0.4-0.6 for the decoders). Starts after unit "night3".
 #
-#   systemd-run --user --unit night4 -p WorkingDirectory=$PWD -p CPUAffinity=0-5,7-23 scripts/night_compiled_v2.sh
+#   systemd-run --user --unit night4 -p WorkingDirectory=$PWD scripts/night_compiled_v2.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."
 source scripts/stage.sh

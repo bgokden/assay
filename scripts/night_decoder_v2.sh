@@ -2,7 +2,7 @@
 # Second overnight queue: decoder runs with the content-scored option term, started once the
 # first queue (unit "night") has finished.
 #
-#   systemd-run --user --unit night2 -p WorkingDirectory=$PWD -p CPUAffinity=0-5,7-23 scripts/night_decoder_v2.sh
+#   systemd-run --user --unit night2 -p WorkingDirectory=$PWD scripts/night_decoder_v2.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."
 source scripts/stage.sh

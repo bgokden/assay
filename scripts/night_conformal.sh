@@ -3,7 +3,7 @@
 # were trained before predictions were saved. Starts once the second queue (unit "night2")
 # has finished.
 #
-#   systemd-run --user --unit night3 -p WorkingDirectory=$PWD -p CPUAffinity=0-5,7-23 scripts/night_conformal.sh
+#   systemd-run --user --unit night3 -p WorkingDirectory=$PWD scripts/night_conformal.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p runs/night

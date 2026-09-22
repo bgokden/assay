@@ -2,7 +2,7 @@
 # Sixth overnight queue: the late-interaction term on the compiled and conditioned tiers.
 # Starts after unit "night5".
 #
-#   systemd-run --user --unit night6 -p WorkingDirectory=$PWD -p CPUAffinity=0-5,7-23 scripts/night_late.sh
+#   systemd-run --user --unit night6 -p WorkingDirectory=$PWD scripts/night_late.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."
 source scripts/stage.sh
