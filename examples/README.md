@@ -68,6 +68,22 @@ python -m assay.server --model runs/example-support-encoder --port 8000
 python -m assay.publish --run runs/example-support-encoder --repo <user>/<name>
 ```
 
+## Data written for other decision models
+
+Training files in the other shape load unchanged: options under `criteria`, a boolean typed
+`noul`, levels as a list.
+
+```json
+{"state": "The dashboard is down for everyone.",
+ "questions": {
+   "route": {"type": "choice", "instructions": "Which team?",
+             "criteria": {"billing": "Payments", "technical": "Faults"}, "label": "technical"},
+   "outage": {"type": "noul", "instructions": "Is this an outage?", "label": true}}}
+```
+
+Point a pipeline configuration at a directory of those files and it trains, calibrates and
+serves them like any other dataset.
+
 ## The configuration file
 
 ```json
