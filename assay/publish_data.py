@@ -137,6 +137,13 @@ from assay.data.dates import generate as generate_dates
 examples = generate(10_000, seed=0) + generate_hard(10_000, seed=1) + generate_dates(10_000, seed=2)
 ```
 
+## The models trained on it
+
+The [Assay collection](https://huggingface.co/collections/Berk/assay-calibrated-typed-decisions-6ab2fcb2b7eea0b7aaf785ab)
+holds the models this data was generated for: four decoder sizes from 0.6B to 27B and an
+encoder tier, each answering typed questions with calibrated probabilities, an evidence score
+and conformal abstention. `python -m assay.pipeline` trains one on data in this format.
+
 ## Licence and scope
 
 Apache-2.0. This repository contains **only** generated material. Assay also trains on public
@@ -154,7 +161,26 @@ def main() -> None:
     ap.add_argument("--out", default="data/release", help="staging directory")
     ap.add_argument("--seed", type=int, default=101)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--card-only", action="store_true", help="upload just the dataset card")
     args = ap.parse_args()
+    if args.card_only:
+        # the counts are what was published; regenerating 100k items to fix a sentence is waste
+        counts = {name: {"train": args.train, "test": args.test} for name in CONFIGS}
+        os.makedirs(args.out, exist_ok=True)
+        path = os.path.join(args.out, "README.md")
+        with open(path, "w") as f:
+            f.write(card(args.repo, counts))
+        if args.dry_run:
+            print(f"wrote {path}")
+            return
+        HfApi().upload_file(
+            path_or_fileobj=path,
+            path_in_repo="README.md",
+            repo_id=args.repo,
+            repo_type="dataset",
+        )
+        print(f"updated https://huggingface.co/datasets/{args.repo}")
+        return
     if os.path.exists(args.out):
         shutil.rmtree(args.out)
     os.makedirs(args.out)
