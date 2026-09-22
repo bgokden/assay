@@ -79,6 +79,7 @@ scaling.
 | compiled, 1 epoch, lr 2e-5, options carry the instruction | 0.591 / 0.490 / 0.029 | 0.545 / 0.538 / 0.033 | 0.423 / 0.621 / 0.086 |
 | cross-encoder (one pass per option) | 0.670 / 0.422 / 0.027 | 0.619 / 0.479 / 0.025 | 0.527 / 0.531 / 0.061 |
 | compiled, 3 epochs, lr 5e-5, 8 slots, content-only options | 0.642 / 0.455 / 0.038 | 0.561 / 0.517 / 0.045 | 0.423 / 0.635 / 0.090 |
+| conditioned (instruction + state in one pass, compiled options), 2 epochs | 0.652 / 0.434 / 0.027 | 0.564 / 0.515 / 0.034 | 0.445 / 0.621 / 0.081 |
 
 The first compiled run underfits (train loss 0.86 against 0.4-0.6 for the decoders, still
 falling when the schedule ended) and had a design flaw: every option text began with the
