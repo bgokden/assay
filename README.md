@@ -116,11 +116,16 @@ from two exact-label synthetic generators of our own (`assay.data.dates`, `assay
 40k extra examples soft-labelled by the 27B did not move unseen tasks and were dropped
 (see `docs/roadmap.md`).
 
-**Soft versus hard targets** (1.7B, same data and seed): soft targets lower raw ECE on unseen
-tasks from 0.060 to 0.047 and confident errors from 7.7% to 6.5% on the transfer suite, but
-after one fitted temperature the two are within noise (holdout Brier 0.334 vs 0.338). At this
-scale the readout design and a single temperature do most of the calibration work; soft
-targets are a modest, consistent extra.
+**Soft versus hard targets** (1.7B, same data, two seeds each): soft targets lower raw ECE on
+unseen tasks (0.047 and 0.057 against 0.060 and 0.068), confident errors on the transfer suite
+(6.5% and 5.9% against 7.7% and 6.8%) and scaled holdout Brier (0.334 and 0.328 against 0.338
+and 0.341), in the same direction for both seeds; accuracy and post-scaling ECE are within
+noise. At this scale the readout design and a single temperature do most of the calibration
+work; soft targets are a modest, consistent extra.
+
+**Seed noise** (two seeds each): 1.7B runs reproduce to 0.3 points on every split; two 4B runs
+differ by 0.5-0.7 points on seen and unseen tasks and 1.1 points on the 764-item transfer
+suite (0.784 and 0.795). Differences under about 1.5 points on the transfer suite are noise.
 
 On the transfer suite assay-27b is within 1.5 points of Jev's reported 0.857 and 0.018 Brier
 of its 0.211, after 4.5 hours of QLoRA on one RTX 5090. Per family it is above Jev on dates

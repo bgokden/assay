@@ -116,7 +116,18 @@ Entailment-style encoder: `[state + question] [SEP] [option description]`, one p
 option, NLI-pretrained start, fine-tuned with the same targets. Cheap to build from the
 same pieces; a middle tier is worth having only if the gap it closes is large.
 
-### 5. Decoder v2 for the small models
+### 5. Decoder v2 for the small models (second seeds done 2026-09-22; content term running)
+
+Second seeds: assay-4b (data v4) seed 1 gives dev 0.786 / 0.288 / 0.022, holdout 0.796 /
+0.278 / 0.024, transfer 0.795 / 0.291 / 0.049 against seed 0's 0.791 / 0.287 / 0.027,
+0.803 / 0.271 / 0.023, 0.784 / 0.302 / 0.061: half a point to a point of seed noise, more on
+the small transfer suite. The 1.7B soft/hard ablation at seed 1 reproduces seed 0 to 0.3
+points and keeps the ordering (soft: lower raw ECE, fewer confident errors, lower Brier;
+equal after scaling). Rule kept: under two points is noise.
+
+Content-scored option term: built (`--content-term`; the option line's token span is
+mean-pooled and scored bilinearly against the decision vector, zero-initialised so training
+starts from the label readout), 1.7B and 4B runs in the night queue.
 
 Retrain the 4B on the distillation set with two changes: a content-scored option term (letter
 logit plus a bilinear term on the option's own encoded representation, removing the label
