@@ -47,7 +47,16 @@ curl -s localhost:8000/v1/agents/support-triage/run -H 'content-type: applicatio
   -d '{"state": {"message": "I was charged twice, please refund."}}'
 ```
 
-[docs/agents.md](../docs/agents.md) explains the specification, the guards and the loop.
+Route a whole file through it, and score the routing when the cases carry an expected
+outcome:
+
+```bash
+python -m assay.apply --model Berk/assay-0.6b --agent examples/agents/support_triage.json \
+    --states tickets.jsonl --out routed.jsonl
+```
+
+[docs/agents.md](../docs/agents.md) explains the specification, the guards, the loop and how to
+read the routing summary.
 
 ## Call a server
 

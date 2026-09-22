@@ -159,6 +159,36 @@ calls again with the new state when the agent has further steps. `POST /v1/agent
 specification for the life of the process -- convenient while building one -- and anything
 that must survive a restart belongs in a file under `--agents`.
 
+## Measuring one
+
+An agent that routes confidently and wrongly is worse than no agent, so measure it on cases
+whose outcome you know. Put the expected outcome on each record and route the file:
+
+```bash
+uv run python -m assay.apply --model Berk/assay-4b --agent examples/agents/support_triage.json \
+    --states labelled_tickets.jsonl --out routed.jsonl
+```
+
+```json
+{"state": {"message": "..."}, "expected": "issue_refund", "meta": {"id": "ticket/1"}}
+```
+
+Each output line carries the outcome, the action, the path and `correct`, and the run ends
+with a summary:
+
+```json
+{"cases": 500, "accuracy": 0.86,
+ "routed": 412, "routed_accuracy": 0.93,
+ "handed_over": 88, "handed_over_accuracy": 0.55, "hand_over_rate": 0.176}
+```
+
+Read it as three numbers, not one. `routed_accuracy` is how often the agent was right when it
+acted on its own; `hand_over_rate` is what that cost you in human work; `handed_over_accuracy`
+is what the agent would have scored on the cases it declined -- if that is close to
+`routed_accuracy`, your guard is too tight and you are paying people to confirm what the model
+already knew. Tighten or loosen `min_probability` until the trade is the one you want, then
+keep the file as a regression test for the next model.
+
 ## Designing one that works
 
 **Ask for what the state can support.** The `evidence` score exists because a question whose
