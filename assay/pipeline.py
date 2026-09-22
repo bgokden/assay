@@ -130,23 +130,27 @@ def stages(config: dict) -> list[Stage]:
             ),
         ]
         for name, path in evaluate.items():
-            steps.append(
-                Stage(
-                    f"evaluate-{name}",
-                    python
-                    + [
-                        "assay.evaluate",
-                        "--model",
-                        out,
-                        "--data",
-                        path,
-                        "--out",
-                        os.path.join(out, f"eval-{name}.json"),
-                    ]
-                    + flags(config.get("evaluate_options", {})),
-                    [f"eval-{name}.json"],
+            # raw first, then scaled: the conformal fit reads the raw scores and applies the
+            # fitted temperature itself, so `eval-<name>.json` must not already carry it
+            for suffix, extra in (("", ["--temperature", "1.0"]), ("-scaled", [])):
+                steps.append(
+                    Stage(
+                        f"evaluate-{name}{suffix}",
+                        python
+                        + [
+                            "assay.evaluate",
+                            "--model",
+                            out,
+                            "--data",
+                            path,
+                            "--out",
+                            os.path.join(out, f"eval-{name}{suffix}.json"),
+                        ]
+                        + extra
+                        + flags(config.get("evaluate_options", {})),
+                        [f"eval-{name}{suffix}.json"],
+                    )
                 )
-            )
     else:
         arch = "seq2seq" if tier == "seq2seq" else config.get("architecture", "compiled")
         steps = [

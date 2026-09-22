@@ -36,8 +36,25 @@ def test_flags_maps_options_to_the_trainer_flags():
 
 
 def test_decoder_stages_are_train_calibrate_evaluate_conformal(tmp_path):
-    names = [s.name for s in stages(config_for(tmp_path, "decoder"))]
-    assert names == ["train", "calibrate", "evaluate-holdout", "conformal"]
+    steps = stages(config_for(tmp_path, "decoder"))
+    assert [s.name for s in steps] == [
+        "train",
+        "calibrate",
+        "evaluate-holdout",
+        "evaluate-holdout-scaled",
+        "conformal",
+    ]
+
+
+def test_the_raw_evaluation_is_not_temperature_scaled(tmp_path):
+    """The conformal fit rescales the raw scores itself, so eval-<name>.json must be raw or
+    the temperature is applied twice."""
+    by_name = {s.name: s for s in stages(config_for(tmp_path, "decoder"))}
+    raw = " ".join(by_name["evaluate-holdout"].argv)
+    scaled = " ".join(by_name["evaluate-holdout-scaled"].argv)
+    assert "--temperature 1.0" in raw
+    assert "--temperature" not in scaled
+    assert raw.endswith("--batch-size 16") or "eval-holdout.json" in raw
 
 
 def test_encoder_trains_calibrates_and_evaluates_in_one_stage(tmp_path):
@@ -109,7 +126,8 @@ def test_run_writes_a_manifest_and_a_summary(tmp_path, monkeypatch):
         "assay.pipeline.run_stage", lambda stage, out: ran.append(stage.name) or 0.0
     )
     manifest = run(config)
-    assert ran == ["train", "conformal"]  # calibration and the evaluation were already there
+    # calibration and the raw evaluation were already there; the scaled one was not
+    assert ran == ["train", "evaluate-holdout-scaled", "conformal"]
     assert manifest["summary"]["temperature"] == 1.23
     assert manifest["summary"]["evaluations"]["holdout"]["accuracy"] == 0.75
     with open(os.path.join(config["out"], "pipeline.json")) as f:
