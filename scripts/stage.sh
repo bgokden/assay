@@ -17,11 +17,18 @@ with_gpu() { flock "$GPU_LOCK" "$@"; }
 run_watched() {  # logfile, cmd... ; returns the command's exit code, 124 when killed as stalled
   local logfile="$1"; shift
   touch "$GPU_LOCK"
-  setsid flock "$GPU_LOCK" "$@" >> "$logfile" 2>&1 &  # own process group; holds the GPU lock
+  local launched=$(stat -c %Y "$logfile")
+  # own process group (so a stall kill reaches the whole tree) holding the GPU lock; the log
+  # is touched the moment the lock is acquired, which is when the stall clock starts
+  setsid flock "$GPU_LOCK" bash -c 'touch "$1"; shift; exec "$@"' _ "$logfile" "$@" >> "$logfile" 2>&1 &
   local pid=$!
   while kill -0 "$pid" 2>/dev/null; do
     sleep 30
-    local age=$(( $(date +%s) - $(stat -c %Y "$logfile") ))
+    local mtime=$(stat -c %Y "$logfile")
+    if [ "$mtime" -le "$launched" ]; then
+      continue  # still queued behind another GPU job, not stalled
+    fi
+    local age=$(( $(date +%s) - mtime ))
     if [ "$age" -gt "$STALL_SECONDS" ]; then
       log "stalled for ${age}s, killing process group $pid"
       kill -TERM -- "-$pid" 2>/dev/null; sleep 15
