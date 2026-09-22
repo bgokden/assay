@@ -15,6 +15,8 @@ Latency is one question / 24 packed questions over one state.
 | [assay-27b](https://huggingface.co/Berk/assay-27b) | Qwen3.8-27B (4-bit) | 27B | 0.834 / 0.243 / 0.040 | 0.842 / 0.221 / 0.040 | 0.842 / 0.229 / 0.041 | bool 88% at 11.2%, choice 84% at 7.4% | 109.5 / 750.8 ms (GPU) |
 | [assay-compiled-base](https://huggingface.co/Berk/assay-compiled-base) | gte-modernbert-base | 149M | 0.668 / 0.442 / 0.037 | 0.606 / 0.494 / 0.061 | 0.542 / 0.572 / 0.095 | bool 8% at 5.0% | 28.95 / 30.64 ms (CPU) |
 
+The models and the dataset are collected at [Assay on the Hub](https://huggingface.co/collections/Berk/assay-calibrated-typed-decisions-6ab2fcb2b7eea0b7aaf785ab).
+
 All weights are Apache-2.0. Training data: 55 public datasets rendered as typed questions
 plus our own generators, published at
 [Berk/assay-synthetic](https://huggingface.co/datasets/Berk/assay-synthetic).

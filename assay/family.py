@@ -28,6 +28,10 @@ FAMILY = [
     Model("assay-compiled-base", "runs/compiled-late-gte-base", "gte-modernbert-base", "149M"),
 ]
 HUB = "https://huggingface.co/Berk"
+COLLECTION = (
+    "https://huggingface.co/collections/Berk/"
+    "assay-calibrated-typed-decisions-6ab2fcb2b7eea0b7aaf785ab"
+)
 
 
 def overall(run: str, split: str) -> dict | None:
@@ -120,6 +124,8 @@ act rate and the error among answers acted on, at alpha 0.1, measured on unseen 
 Latency is one question / 24 packed questions over one state.
 
 {full_table()}
+
+The models and the dataset are collected at [Assay on the Hub]({COLLECTION}).
 
 All weights are Apache-2.0. Training data: 55 public datasets rendered as typed questions
 plus our own generators, published at
