@@ -1,0 +1,21 @@
+{
+  "name": "support-decoder",
+  "tier": "decoder",
+  "base_model": "Qwen/Qwen3-0.6B-Base",
+  "data": "examples/data/support",
+  "out": "runs/example-support-decoder",
+  "train": {
+    "epochs": 1,
+    "lr": 1e-4,
+    "batch_size": 8,
+    "lora_r": 16,
+    "max_state_tokens": 512
+  },
+  "evaluate_options": {
+    "batch_size": 16
+  },
+  "conformal": {
+    "alpha": 0.1,
+    "delta": 0.05
+  }
+}

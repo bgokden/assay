@@ -16,7 +16,7 @@ import shutil
 from huggingface_hub import HfApi
 
 from assay.compiled import CONFIG_FILE, WEIGHTS_FILE
-from assay.publish import metrics_row
+from assay.publish import FAMILY_SECTION, metrics_row
 
 MODEL_FILES = (
     "config.json",
@@ -115,6 +115,7 @@ multi-step reasoning are near chance. See the repository's `docs/roadmap.md` for
 comparison against the cross-encoder and the decoders.
 
 {latency}
+{FAMILY_SECTION}
 ## Usage
 
 ```python
@@ -160,6 +161,7 @@ def main() -> None:
     ap.add_argument("--run", required=True)
     ap.add_argument("--repo", required=True)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--card-only", action="store_true", help="upload just the model card")
     args = ap.parse_args()
     staging = os.path.join(args.run, "hub")
     if os.path.exists(staging):
@@ -169,7 +171,14 @@ def main() -> None:
         if (
             fn in MODEL_FILES
             or (fn.startswith("eval-") and fn.endswith(".json"))
-            or fn in ("calibration.json", "train_args.json", "train_log.jsonl", "latency-cpu.txt")
+            or fn
+            in (
+                "calibration.json",
+                "conformal.json",
+                "train_args.json",
+                "train_log.jsonl",
+                "latency-cpu.txt",
+            )
         ):
             shutil.copy(os.path.join(args.run, fn), os.path.join(staging, fn))
     write_card(args.run, args.repo, os.path.join(staging, "README.md"))
@@ -178,7 +187,15 @@ def main() -> None:
         return
     api = HfApi()
     api.create_repo(args.repo, repo_type="model", exist_ok=True)
-    api.upload_folder(folder_path=staging, repo_id=args.repo, repo_type="model")
+    if args.card_only:
+        api.upload_file(
+            path_or_fileobj=os.path.join(staging, "README.md"),
+            path_in_repo="README.md",
+            repo_id=args.repo,
+            repo_type="model",
+        )
+    else:
+        api.upload_folder(folder_path=staging, repo_id=args.repo, repo_type="model")
     print(f"uploaded to https://huggingface.co/{args.repo}")
 
 

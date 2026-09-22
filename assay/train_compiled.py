@@ -29,6 +29,13 @@ from assay.records import Record, read_records
 from assay.train import target_vector
 
 
+def autocast_for(model) -> torch.autocast:
+    """bfloat16 autocast on a GPU, and nothing on a CPU, where it is slower than float32.
+    The tier is meant to train on a laptop as well as on a card."""
+    device_type = next(model.parameters()).device.type
+    return torch.autocast(device_type, dtype=torch.bfloat16, enabled=device_type == "cuda")
+
+
 def flatten(records: list[Record]) -> list[Record]:
     return [
         Record(state=r.state, questions=[lq], meta=r.meta) for r in records for lq in r.questions
@@ -131,7 +138,7 @@ def predict(
     temp = model.temperature if temperature is None else temperature
     order = sorted(range(len(records)), key=lambda i: len(json.dumps(records[i].state)))
     scored: list[Scored | None] = [None] * len(records)
-    with torch.autocast("cuda", dtype=torch.bfloat16):
+    with autocast_for(model):
         for idx in make_batches(records, order, batch_size, pair_budget):
             batch = [records[i] for i in idx]
             qs = [r.questions[0].question for r in batch]
@@ -191,6 +198,30 @@ def evaluate_split(
     return rep
 
 
+def evaluation_splits(data_dir: str, extra: list[str]) -> list[tuple[str, str]]:
+    """The `name, path` pairs to evaluate after training: `dev` and `holdout` from the data
+    directory, then every `name=path` given with --evaluate. A split whose file is missing is
+    skipped, so a dataset without a transfer suite still trains and calibrates."""
+    pairs = [
+        ("dev", os.path.join(data_dir, "dev.jsonl")),
+        ("holdout", os.path.join(data_dir, "holdout.jsonl")),
+    ]
+    for item in extra:
+        name, _, path = item.partition("=")
+        if not path:
+            raise ValueError(f"--evaluate takes name=path, not {item!r}")
+        pairs.append((name, path))
+    present: list[tuple[str, str]] = []
+    for name, path in pairs:
+        if name in dict(present):
+            continue
+        if os.path.exists(path):
+            present.append((name, path))
+        else:
+            print(f"skipping the {name} evaluation: no {path}", flush=True)
+    return present
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--encoder", help="backbone id; not needed with --init")
@@ -237,11 +268,17 @@ def main() -> None:
     ap.add_argument(
         "--init", help="continue from a saved compiled model instead of a fresh encoder"
     )
-    ap.add_argument("--device", default="cuda")
+    ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument(
         "--late-interaction",
         action="store_true",
         help="add the option-token to state-token MaxSim term",
+    )
+    ap.add_argument(
+        "--evaluate",
+        nargs="*",
+        default=["transfer-v4=data/suites/kev-transfer-v4-dev.jsonl"],
+        help="extra evaluation splits as name=path",
     )
     args = ap.parse_args()
     if not args.encoder and not args.init:
@@ -356,7 +393,7 @@ def run_training(model, args) -> None:
     for idx in schedule[step:]:
         batch = [records[i] for i in idx]
         qs = [r.questions[0].question for r in batch]
-        with torch.autocast("cuda", dtype=torch.bfloat16):
+        with autocast_for(model):
             logits, evidence = model([r.state for r in batch], qs)
         k_max = logits.shape[1]
         target, answerable = build_targets(batch, k_max, args.hard_targets, args.score_sigma)
@@ -423,11 +460,7 @@ def run_training(model, args) -> None:
     model.save_pretrained(args.out)
     with open(os.path.join(args.out, "calibration.json"), "w") as f:
         json.dump({"temperature": temperature, "before": before, "after": after}, f, indent=2)
-    for split, path in (
-        ("dev", os.path.join(args.data, "dev.jsonl")),
-        ("holdout", os.path.join(args.data, "holdout.jsonl")),
-        ("transfer-v4", "data/suites/kev-transfer-v4-dev.jsonl"),
-    ):
+    for split, path in evaluation_splits(args.data, args.evaluate):
         evaluate_split(
             model,
             path,

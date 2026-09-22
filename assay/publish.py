@@ -19,6 +19,30 @@ from huggingface_hub import HfApi
 
 from assay.model import CONFIG_FILE, HEAD_FILE, AssayModel
 
+FAMILY_SECTION = """## The family
+
+| model | size | unseen tasks | transfer-v4 |
+|---|---|---|---|
+| [assay-0.6b](https://huggingface.co/Berk/assay-0.6b) | 0.6B | 0.704 / 0.397 | 0.636 / 0.499 |
+| [assay-1.7b](https://huggingface.co/Berk/assay-1.7b) | 1.7B | 0.752 / 0.334 | 0.670 / 0.436 |
+| [assay-4b](https://huggingface.co/Berk/assay-4b) | 4B | 0.803 / 0.271 | 0.784 / 0.302 |
+| [assay-27b](https://huggingface.co/Berk/assay-27b) | 27B | 0.842 / 0.221 | 0.842 / 0.229 |
+| [assay-compiled-base](https://huggingface.co/Berk/assay-compiled-base) | 149M | 0.606 / 0.494 | 0.542 / 0.572 |
+
+Accuracy / Brier after temperature scaling. Same recipe, same splits, different backbones;
+per-tier abstention and latency are in
+[docs/models.md](https://github.com/bgokden/assay/blob/main/docs/models.md).
+
+## Serving
+
+`assay.server` exposes `POST /v1/decide`, the System One style `POST /v1/systemone`
+(questions typed `choice`/`noul`/`score` with options under `criteria`, plus a batch
+endpoint), and `POST /v1/decide_graph`, which walks a decision tree in a single forward pass.
+Requests arriving together are answered in one pass; `/health` and `/metrics` are for
+operations. `assay.backends.sglang` runs the same model on an SGLang deployment.
+
+"""
+
 
 def metrics_row(name: str, path: str) -> str | None:
     if not os.path.exists(path):
@@ -185,29 +209,7 @@ bins, confident errors are answers with p >= 0.9 that are wrong.
 
 {latency}
 {abstention}
-## The family
-
-| model | size | unseen tasks | transfer-v4 |
-|---|---|---|---|
-| [assay-0.6b](https://huggingface.co/Berk/assay-0.6b) | 0.6B | 0.704 / 0.397 | 0.636 / 0.499 |
-| [assay-1.7b](https://huggingface.co/Berk/assay-1.7b) | 1.7B | 0.752 / 0.334 | 0.670 / 0.436 |
-| [assay-4b](https://huggingface.co/Berk/assay-4b) | 4B | 0.803 / 0.271 | 0.784 / 0.302 |
-| [assay-27b](https://huggingface.co/Berk/assay-27b) | 27B | 0.842 / 0.221 | 0.842 / 0.229 |
-| [assay-compiled-base](https://huggingface.co/Berk/assay-compiled-base) | 149M | 0.606 / 0.494 | 0.542 / 0.572 |
-
-Accuracy / Brier after temperature scaling. Same recipe, same splits, different backbones;
-per-tier abstention and latency are in
-[docs/models.md](https://github.com/bgokden/assay/blob/main/docs/models.md).
-
-## Serving
-
-`assay.server` exposes `POST /v1/decide`, the System One style `POST /v1/systemone`
-(questions typed `choice`/`noul`/`score` with options under `criteria`, plus a batch
-endpoint), and `POST /v1/decide_graph`, which walks a decision tree in a single forward pass.
-Requests arriving together are answered in one pass; `/health` and `/metrics` are for
-operations. `assay.backends.sglang` runs the same model on an SGLang deployment.
-
-## Usage
+{FAMILY_SECTION}## Usage
 
 ```python
 from assay.model import AssayModel

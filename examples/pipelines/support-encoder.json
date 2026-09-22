@@ -1,0 +1,19 @@
+{
+  "name": "support-encoder",
+  "tier": "encoder",
+  "base_model": "Alibaba-NLP/gte-modernbert-base",
+  "data": "examples/data/support",
+  "out": "runs/example-support-encoder",
+  "architecture": "compiled",
+  "train": {
+    "epochs": 2,
+    "lr": 5e-5,
+    "batch_size": 16,
+    "slots": 8,
+    "late_interaction": true
+  },
+  "conformal": {
+    "alpha": 0.1,
+    "delta": 0.05
+  }
+}
