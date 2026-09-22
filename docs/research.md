@@ -28,6 +28,36 @@ in prior work and in what the community learned in the first days after Jev's re
 | bespokelabs Nimble-9B | Qwen3.5-9B LoRA | letter-token logits | 2.7k synthetic contrastive records | 90.1% vs Jev 93.2% on their set |
 | kotobalabs open-jev-deberta-v3-large | DeBERTa cross-encoder | NLI style | - | - |
 
+| Chawla, "Build your own Jev (100% local)" (2026-09-20) | any HF LLM via SGLang `/v1/score` | letter-token logits, restricted softmax | none (explicitly) | none; article notes p is not an accuracy |
+
+That last one is a tutorial rather than a project, and it is the clearest statement of what
+the inference path alone gives you: SGLang's `/v1/score` takes a prompt and a list of
+single-token label ids and returns the restricted softmax over them, so the readout needs no
+model changes at all. It gets the details right that matter (labels must be one token,
+leading spaces and chat templates change token ids, an escape option is needed when the list
+is not exhaustive) and is honest that training, calibration and an evaluation stack are
+missing. The gap it leaves is the one Assay is about: an untrained readout on our own suite
+scores 0.623 on unseen tasks at 1.7B and 0.740 at 4B, against 0.752 and 0.803 trained, and
+its probabilities have no guarantee attached.
+
+The article's suggested policy, "act when the top probability exceeds 0.80 and leads the
+runner-up by 0.20", is a reasonable default and measurably model-dependent. The same rule on
+unseen tasks, on raw probabilities:
+
+| model | acts on | error among acted |
+|---|---|---|
+| assay-27b | 68% | 4.5% |
+| assay-4b | 66% | 7.8% |
+| assay-1.7b | 58% | 9.8% |
+| compiled encoder tier | 42% | 23.1% |
+| cross-encoder tier | 29% | 16.2% |
+
+On a well-trained decoder it lands close to our fitted thresholds (assay-4b: 66% at 7.8%
+against conformal's 67% at 9.0% for a 10% target), which is a point in its favour; on a
+weaker model the same constants silently act on 42% of questions at 23% error. That is the
+argument for fitting thresholds per model and per question type with a stated error rate
+(`assay.conformal`) rather than carrying constants between models.
+
 Evaluation resources: `jaredpalmer/kev-suites` (HF dataset; transfer-v4 dev = 764 items from
 mmlu, emotion, sciq, tweet_offensive, qnli, paws + synthetic rule holdouts; Jev numbers
 published on it), `jabr/classifier-benchmark` (78 cases, 8 tasks).
@@ -154,6 +184,7 @@ published on it), `jabr/classifier-benchmark` (78 cases, 8 tasks).
 - https://github.com/wfzyx/von, https://github.com/ikermoel/open-alternative-jev,
   https://github.com/razorback16/openjev, https://github.com/jaswanthsanjay88/rev
 - https://github.com/bespokelabsai/nimble
+- Chawla, "Build your own Jev (100% local)" (SGLang /v1/score walkthrough, 2026-09-20)
 - arXiv 2207.05221 (Kadavath), 2102.09690 (Zhao), 2309.03882 (PriDe), 2309.17249 (Batch Cal.),
   1706.04599 (Guo), 1906.02629 (Muller), 2408.14141 (Crowd-Calibrator), 2605.29797,
   2603.14092 (SMECE), 2605.23909, 2606.03437, 2508.07662 (GLiClass), SORD (CVPR 2019),
