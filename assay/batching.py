@@ -15,13 +15,13 @@ from typing import Any
 
 import torch
 
-from assay.encoding import Packed
 from assay.schema import Answer, Question
+from assay.serving import runner_for
 
 
 @dataclasses.dataclass
 class Job:
-    packed: Packed
+    item: Any  # whatever the runner prepared: a packed batch, or a state
     questions: list[Question]
     future: asyncio.Future
     queued_at: float
@@ -116,7 +116,8 @@ class QueueFull(Exception):
 
 
 class Batcher:
-    """Collects requests for a short window and runs them as one packed forward pass."""
+    """Collects requests for a short window and runs them as one forward pass. The runner
+    knows how its tier turns a request into work; the batcher only sizes and groups."""
 
     def __init__(
         self,
@@ -125,8 +126,11 @@ class Batcher:
         max_batch_tokens: int = 16384,
         max_wait_ms: float = 5.0,
         max_queue: int = 256,
+        max_state_tokens: int = 4096,
+        runner: Any = None,
     ) -> None:
         self.model = model
+        self.runner = runner if runner is not None else runner_for(model, max_state_tokens)
         self.max_batch_size = max_batch_size
         self.max_batch_tokens = max_batch_tokens
         self.max_wait_ms = max_wait_ms
@@ -159,19 +163,19 @@ class Batcher:
                 pass
             self._task = None
 
-    async def submit(self, packed: Packed, questions: list[Question]) -> list[Answer]:
+    async def submit(self, item: Any, questions: list[Question]) -> list[Answer]:
         await self.start()
         if self.queue.qsize() >= self.max_queue:
             self.metrics.rejected += 1
             raise QueueFull(f"{self.queue.qsize()} requests already queued")
         future: asyncio.Future = asyncio.get_running_loop().create_future()
-        self.queue.put_nowait(Job(packed, questions, future, time.perf_counter()))
+        self.queue.put_nowait(Job(item, questions, future, time.perf_counter()))
         return await future
 
     async def _collect(self) -> list[Job]:
         """One job, then whatever else arrives within the window and fits the batch budget."""
         jobs = [await self.queue.get()]
-        tokens = len(jobs[0].packed)
+        tokens = self.runner.size(jobs[0].item)
         deadline = time.perf_counter() + self.max_wait_ms / 1000.0
         while len(jobs) < self.max_batch_size:
             remaining = deadline - time.perf_counter()
@@ -181,18 +185,18 @@ class Batcher:
                 job = await asyncio.wait_for(self.queue.get(), timeout=remaining)
             except TimeoutError:
                 break
-            if tokens + len(job.packed) > self.max_batch_tokens and len(jobs) > 1:
+            if tokens + self.runner.size(job.item) > self.max_batch_tokens and len(jobs) > 1:
                 self.queue.put_nowait(job)  # too big for this batch, leads the next one
                 break
             jobs.append(job)
-            tokens += len(job.packed)
+            tokens += self.runner.size(job.item)
         return jobs
 
     def _infer(self, jobs: list[Job]) -> list[list[Answer]]:
         device = getattr(self.model, "device", None)
         use_cuda = device is not None and getattr(device, "type", "") == "cuda"
         with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16, enabled=use_cuda):
-            return self.model.answer_packed([j.packed for j in jobs], [j.questions for j in jobs])
+            return self.runner.answer_batch([j.item for j in jobs], [j.questions for j in jobs])
 
     async def _run(self) -> None:
         loop = asyncio.get_running_loop()

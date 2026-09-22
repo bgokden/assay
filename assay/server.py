@@ -47,9 +47,7 @@ from pydantic import BaseModel, Field
 
 from assay.batching import Batcher, QueueFull
 from assay.conformal import CONFORMAL_FILE, decorate
-from assay.encoding import encode, identity_order
 from assay.graph import Graph, walk
-from assay.model import AssayModel
 from assay.schema import Answer, Question
 
 MAX_QUESTIONS = 255
@@ -101,14 +99,15 @@ def load_conformal(model: str) -> dict[str, Any] | None:
 
 
 def create_app(
-    model: AssayModel,
+    model: Any,
     model_name: str,
     max_state_tokens: int = 4096,
     conformal: dict[str, Any] | None = None,
     batcher: Batcher | None = None,
     api_key: str | None = None,
 ) -> FastAPI:
-    batcher = batcher or Batcher(model)
+    batcher = batcher or Batcher(model, max_state_tokens=max_state_tokens)
+    runner = batcher.runner
 
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -138,16 +137,9 @@ def create_app(
         """Encode, submit to the batcher, and serialise the answers with any thresholds."""
         names = list(questions)
         qs = [questions[n] for n in names]
-        packed = encode(
-            model.tokenizer,
-            model.alphabet,
-            state,
-            qs,
-            orders=[identity_order(q) for q in qs],
-            max_state_tokens=max_state_tokens,
-        )
+        item = runner.prepare(state, qs)
         try:
-            answers = await batcher.submit(packed, qs)
+            answers = await batcher.submit(item, qs)
         except QueueFull as e:
             raise HTTPException(status_code=503, detail=str(e), headers={"Retry-After": "1"}) from e
         except torch.OutOfMemoryError as e:
@@ -158,11 +150,12 @@ def create_app(
         if conformal is not None:
             for n in names:
                 decorate(out[n], questions[n], conformal)
-        return out, len(packed)
+        return out, runner.size(item)
 
     @app.get("/v1/models")
     def models() -> dict[str, Any]:
-        return {"models": [{"id": model_name, "base": model.base_model_id}]}
+        base = getattr(model, "base_model_id", None) or getattr(model, "model_id", None)
+        return {"models": [{"id": model_name, "base": base}]}
 
     @app.get("/health")
     def health() -> dict[str, Any]:
@@ -299,6 +292,11 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True, help="saved model directory or base:<hf id>")
     ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument(
+        "--device",
+        default="cuda" if torch.cuda.is_available() else "cpu",
+        help="where the small tiers load; the decoder tier places itself",
+    )
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--max-state-tokens", type=int, default=4096)
     ap.add_argument("--max-batch-size", type=int, default=16, help="requests per forward pass")
@@ -322,11 +320,12 @@ def main() -> None:
     args = ap.parse_args()
     from assay.evaluate import load_model
 
-    model = load_model(args.model)
+    model = load_model(args.model, device=args.device)
     model.eval()
     name = os.path.basename(args.model.rstrip("/")) or args.model
     batcher = Batcher(
         model,
+        max_state_tokens=args.max_state_tokens,
         max_batch_size=args.max_batch_size,
         max_batch_tokens=args.max_batch_tokens,
         max_wait_ms=args.batch_wait_ms,

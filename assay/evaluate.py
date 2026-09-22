@@ -8,15 +8,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from collections.abc import Iterable
 
 import torch
 
+from assay.compiled import CONFIG_FILE as COMPILED_CONFIG_FILE
 from assay.encoding import Packed, encode, identity_order
 from assay.metrics import Scored, reliability_table, summarize, summarize_by, write_scored
 from assay.model import AssayModel
 from assay.records import Record, read_records
+from assay.seq2seq import CONFIG_FILE as SEQ2SEQ_CONFIG_FILE
 
 
 def load_model(
@@ -24,7 +27,10 @@ def load_model(
     dtype: torch.dtype = torch.bfloat16,
     quantization: str | None = None,
     max_memory: dict[str | int, str] | None = None,
-) -> AssayModel:
+    device: str = "cuda",
+):
+    """A saved model of any tier, `base:<hf id>` for an untrained readout, or a Hub id. The
+    tier is read from the config file its trainer wrote, so callers do not choose a class."""
     if spec.startswith("base:"):
         return AssayModel.from_base(
             spec[len("base:") :],
@@ -33,7 +39,20 @@ def load_model(
             quantization=quantization,
             max_memory=max_memory,
         )
-    return AssayModel.from_pretrained(spec, dtype=dtype)
+    path = spec
+    if not os.path.isdir(path):
+        from huggingface_hub import snapshot_download
+
+        path = snapshot_download(spec)
+    if os.path.exists(os.path.join(path, SEQ2SEQ_CONFIG_FILE)):
+        from assay.seq2seq import Seq2SeqModel
+
+        return Seq2SeqModel.from_pretrained(path, device=device)
+    if os.path.exists(os.path.join(path, COMPILED_CONFIG_FILE)):
+        from assay.compiled import load_any
+
+        return load_any(path, device=device)
+    return AssayModel.from_pretrained(path, dtype=dtype)
 
 
 def predict(

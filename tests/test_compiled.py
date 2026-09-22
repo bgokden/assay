@@ -158,3 +158,41 @@ def test_joint_reader_forward_and_roundtrip(tmp_path):
     b = loaded.answer(STATE, {"team": TEAM})["team"].probabilities
     for key in TEAM.keys:
         assert b[key] == pytest.approx(a[key], abs=1e-4)
+
+
+def test_the_same_server_serves_the_encoder_tier(model):
+    """Every tier goes through the same endpoints: the runner, not the endpoint, knows how a
+    tier turns a request into a forward pass."""
+    from fastapi.testclient import TestClient
+
+    from assay.server import create_app
+
+    client = TestClient(create_app(model, "encoder-tier"))
+    body = {
+        "state": STATE,
+        "questions": {
+            "team": {
+                "type": "choice",
+                "instructions": TEAM.instructions,
+                "options": {"billing": "Charges and refunds", "technical": "Bugs and outages"},
+            },
+            "refund": {"type": "bool", "instructions": REFUND.instructions},
+        },
+    }
+    r = client.post("/v1/decide", json=body)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["usage"]["input_tokens"] > 0
+    assert out["answers"]["team"]["choice"] in ("billing", "technical")
+    assert abs(sum(out["answers"]["team"]["probabilities"].values()) - 1.0) < 1e-3
+    assert 0.0 <= out["answers"]["refund"]["p_true"] <= 1.0
+
+    one = client.post(
+        "/v1/systemone",
+        json={
+            "state": "x",
+            "questions": {"short": {"type": "noul", "instructions": "Is this text short?"}},
+        },
+    )
+    assert one.status_code == 200, one.text
+    assert 0.0 <= one.json()["nouls"]["short"]["noul"] <= 1.0

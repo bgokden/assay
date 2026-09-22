@@ -1,4 +1,5 @@
-"""Publish an encoder-tier model (compiled, conditioned or cross) to the Hugging Face Hub.
+"""Publish a small-tier model to the Hugging Face Hub: the encoder tier (compiled,
+conditioned, cross) or the encoder-decoder tier (seq2seq).
 
     uv run python -m assay.publish_compiled --run runs/compiled-late-gte-base --repo Berk/assay-compiled-base
 
@@ -17,16 +18,34 @@ from huggingface_hub import HfApi
 
 from assay.compiled import CONFIG_FILE, WEIGHTS_FILE
 from assay.publish import FAMILY_SECTION, metrics_row
+from assay.seq2seq import CONFIG_FILE as SEQ2SEQ_CONFIG_FILE
+from assay.seq2seq import WEIGHTS_FILE as SEQ2SEQ_WEIGHTS_FILE
 
-MODEL_FILES = (
+SHARED_FILES = (
     "config.json",
     "model.safetensors",
     "tokenizer.json",
     "tokenizer_config.json",
     "special_tokens_map.json",
-    WEIGHTS_FILE,
-    CONFIG_FILE,
 )
+TIER_FILES = {
+    "encoder": (CONFIG_FILE, WEIGHTS_FILE),
+    "seq2seq": (SEQ2SEQ_CONFIG_FILE, SEQ2SEQ_WEIGHTS_FILE),
+}
+
+
+def tier_of(run: str) -> str:
+    """Which small tier this run directory holds, by the config file its trainer wrote."""
+    if os.path.exists(os.path.join(run, SEQ2SEQ_CONFIG_FILE)):
+        return "seq2seq"
+    if os.path.exists(os.path.join(run, CONFIG_FILE)):
+        return "encoder"
+    raise ValueError(f"{run} has neither {CONFIG_FILE} nor {SEQ2SEQ_CONFIG_FILE}")
+
+
+def model_files(run: str) -> tuple[str, ...]:
+    return SHARED_FILES + TIER_FILES[tier_of(run)]
+
 
 ARCH_TEXT = {
     "compiled": (
@@ -45,6 +64,13 @@ ARCH_TEXT = {
         "options are compiled separately and scored by content (bilinear score plus bias, with a "
         "late-interaction term when enabled)."
     ),
+    "seq2seq": (
+        "The state and the question go into the encoder together and the answer is read from the "
+        "decoder's first position, over the same single-token option labels the decoder models "
+        "use. The alternative arrangement -- state in the encoder, question in the decoder, so "
+        "one encoder pass could serve many questions -- was trained the same way and lost 14 "
+        "points of holdout accuracy, so this tier pays for one pass per question."
+    ),
     "cross": (
         "One encoder pass per (option, state) pair with the instruction in front, scored by a linear "
         "head over the pooled encoding; softmax over a question's options."
@@ -53,12 +79,26 @@ ARCH_TEXT = {
 
 
 def write_card(run: str, repo: str, out_path: str) -> None:
-    with open(os.path.join(run, CONFIG_FILE)) as f:
+    tier = tier_of(run)
+    with open(os.path.join(run, TIER_FILES[tier][0])) as f:
         config = json.load(f)
     with open(os.path.join(run, "train_args.json")) as f:
         targs = json.load(f)
     arch = config.get("arch", "compiled")
     late = config.get("late_interaction", False)
+    backbone = config.get("encoder_id") or config["model_id"]
+    slots = f" ({config['slots']} query slots)" if "slots" in config else ""
+    loader_module, loader = (
+        ("seq2seq", "Seq2SeqModel.from_pretrained")
+        if tier == "seq2seq"
+        else ("compiled", "load_any")
+    )
+    tier_text = (
+        "It reads the answer from a small encoder-decoder, which costs one pass per question "
+        "and needs no large language model."
+        if tier == "seq2seq"
+        else "It is the small, CPU-friendly tier, with no language model at all."
+    )
     rows = [
         metrics_row(name, os.path.join(run, fn))
         for name, fn in (
@@ -81,7 +121,7 @@ def write_card(run: str, repo: str, out_path: str) -> None:
             )
     card = f"""---
 license: apache-2.0
-base_model: {config["encoder_id"]}
+base_model: {backbone}
 language: en
 tags:
 - text-classification
@@ -92,14 +132,14 @@ tags:
 
 # {repo.split("/")[-1]}
 
-An encoder-tier decision model from the [Assay](https://github.com/bgokden/assay) project:
+A small-tier decision model from the [Assay](https://github.com/bgokden/assay) project:
 typed questions (`bool`, `choice`, `score`) over a state produce calibrated probability
-distributions with an `evidence` signal, with no text generation and no language model. It
-is the small, CPU-friendly tier; the decoder models ([Berk/assay-4b](https://huggingface.co/Berk/assay-4b),
-[Berk/assay-27b](https://huggingface.co/Berk/assay-27b)) are far more accurate.
+distributions with an `evidence` signal, and no text is generated. {tier_text} The decoder
+models ([Berk/assay-4b](https://huggingface.co/Berk/assay-4b),
+[Berk/assay-27b](https://huggingface.co/Berk/assay-27b)) are more accurate and larger.
 
-Architecture `{arch}`{" with late interaction" if late else ""} on `{config["encoder_id"]}`
-({config["slots"]} query slots). {ARCH_TEXT[arch]}
+Architecture `{arch}`{" with late interaction" if late else ""} on `{backbone}`{slots}.
+{ARCH_TEXT[arch]}
 
 ## Evaluation
 
@@ -112,17 +152,17 @@ calibration split. Unseen tasks are eleven datasets never trained on; the transf
 `jaredpalmer/kev-suites` transfer-v4 dev, whose sources are excluded from training. Single-text
 classification (topic, sentiment, spam) is strong; questions that need knowledge (MMLU) or
 multi-step reasoning are near chance. See the repository's `docs/roadmap.md` for the full
-comparison against the cross-encoder and the decoders.
+comparison against the other tiers.
 
 {latency}
 {FAMILY_SECTION}
 ## Usage
 
 ```python
-from assay.compiled import load_any
+from assay.{loader_module} import {loader}
 from assay.schema import Question
 
-model = load_any("{repo}", device="cpu")
+model = {loader}("{repo}", device="cpu")
 answers = model.answer(
     "My card was charged twice for order A-104.",
     {{
@@ -163,13 +203,14 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--card-only", action="store_true", help="upload just the model card")
     args = ap.parse_args()
+    files = model_files(args.run)
     staging = os.path.join(args.run, "hub")
     if os.path.exists(staging):
         shutil.rmtree(staging)
     os.makedirs(staging)
     for fn in os.listdir(args.run):
         if (
-            fn in MODEL_FILES
+            fn in files
             or (fn.startswith("eval-") and fn.endswith(".json"))
             or fn
             in (
