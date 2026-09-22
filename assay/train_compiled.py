@@ -217,6 +217,11 @@ def main() -> None:
         "--pair-budget", type=int, help="max options per batch (default 256 compiled, 64 cross)"
     )
     ap.add_argument("--checkpoint-every", type=int, default=500)
+    ap.add_argument(
+        "--late-interaction",
+        action="store_true",
+        help="add the option-token to state-token MaxSim term",
+    )
     args = ap.parse_args()
     if args.pair_budget is None:
         args.pair_budget = {"cross": 64, "conditioned": 256, "compiled": 256}[args.arch]
@@ -225,7 +230,9 @@ def main() -> None:
     os.makedirs(args.out, exist_ok=True)
     with open(os.path.join(args.out, "train_args.json"), "w") as f:
         json.dump(vars(args), f, indent=2)
-    model = ARCHITECTURES[args.arch].from_encoder(args.encoder, slots=args.slots)
+    model = ARCHITECTURES[args.arch].from_encoder(
+        args.encoder, slots=args.slots, late_interaction=args.late_interaction
+    )
     model.max_state_tokens = args.max_state_tokens
     if args.arch != "compiled":
         model.encoder.gradient_checkpointing_enable()

@@ -48,10 +48,13 @@ def option_texts(q: Question, with_instructions: bool = False) -> list[str]:
 
 
 @dataclasses.dataclass
-class CompiledQuestion:
-    queries: torch.Tensor  # (M, d)
-    options: torch.Tensor  # (K, d)
-    keys: list[str]
+class Options:
+    """Compiled options of a batch of questions, padded to K_max."""
+
+    vectors: torch.Tensor  # (B, K, d) mean-pooled option encodings
+    valid: torch.Tensor  # (B, K) bool
+    tokens: torch.Tensor | None = None  # (B, K, T, d) token encodings, for late interaction
+    token_mask: torch.Tensor | None = None  # (B, K, T)
 
 
 def mean_pool(hidden: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -68,6 +71,7 @@ class CompiledModel(nn.Module):
         slots: int = 4,
         heads: int = 8,
         temperature: float = 1.0,
+        late_interaction: bool = False,
     ):
         super().__init__()
         self.encoder = encoder
@@ -82,6 +86,9 @@ class CompiledModel(nn.Module):
         self.bilinear = nn.Linear(d, d, bias=False)
         self.option_bias = nn.Linear(d, 1, bias=False)
         self.evidence_head = nn.Linear(d + 1, 1)
+        # late interaction (ColBERT-style): each option token finds its best-matching state
+        # token; the mean of those cosine similarities, scaled, is added to the option logit
+        self.late_scale = nn.Parameter(torch.tensor(10.0)) if late_interaction else None
         self.temperature = temperature
         self.max_state_tokens = 512
         self.max_option_tokens = 96
@@ -115,6 +122,7 @@ class CompiledModel(nn.Module):
             slots=config["slots"],
             heads=config["heads"],
             temperature=config.get("temperature", 1.0),
+            late_interaction=config.get("late_interaction", False),
         )
         model.option_instructions = config.get("option_instructions", True)
         state = safetensors.torch.load_file(os.path.join(path, WEIGHTS_FILE))
@@ -142,6 +150,7 @@ class CompiledModel(nn.Module):
                     "heads": self.attn.num_heads,
                     "temperature": self.temperature,
                     "option_instructions": self.option_instructions,
+                    "late_interaction": self.late_scale is not None,
                     "arch": arch_name(self),
                 },
                 f,
@@ -161,12 +170,14 @@ class CompiledModel(nn.Module):
         hidden = self.encoder(**batch).last_hidden_state
         return hidden, batch["attention_mask"]
 
-    def encode_unique(self, texts: list[str]) -> torch.Tensor:
-        """Mean-pooled vectors for texts, encoding each distinct text once."""
+    def encode_unique(self, texts: list[str]) -> tuple[torch.Tensor, torch.Tensor]:
+        """Token encodings (N, T, d) and mask (N, T) for texts, encoding each distinct text
+        once."""
         unique = list(dict.fromkeys(texts))
         index = {t: i for i, t in enumerate(unique)}
-        vecs = mean_pool(*self.encode_tokens(unique, self.max_option_tokens))
-        return vecs[torch.tensor([index[t] for t in texts], device=vecs.device)]
+        hidden, mask = self.encode_tokens(unique, self.max_option_tokens)
+        gather = torch.tensor([index[t] for t in texts], device=hidden.device)
+        return hidden[gather], mask[gather]
 
     def encode_states(self, states: list[Any]) -> tuple[torch.Tensor, torch.Tensor]:
         return self.encode_tokens([render_state(s) for s in states], self.max_state_tokens)
@@ -177,29 +188,47 @@ class CompiledModel(nn.Module):
         """Returns queries (B, M, d), option vectors (B, K_max, d) and a validity mask (B, K_max).
         Each distinct text is encoded once per batch: records that share a question share
         its compiled parameters."""
-        options, valid = self.compile_options(questions)
-        q_vec = self.encode_unique([q.instructions.strip() for q in questions])  # (B, d)
+        options = self.compile_options(questions)
+        q_vec = mean_pool(*self.encode_unique([q.instructions.strip() for q in questions]))
         queries = self.slots.unsqueeze(0) + self.query_proj(q_vec).unsqueeze(1)  # (B, M, d)
-        return queries, options, valid
+        return queries, options
 
-    def compile_options(self, questions: list[Question]) -> tuple[torch.Tensor, torch.Tensor]:
-        """Option vectors (B, K_max, d) and a validity mask (B, K_max)."""
+    def compile_options(self, questions: list[Question]) -> Options:
         flat: list[str] = []
         counts: list[int] = []
         for q in questions:
             texts = option_texts(q, self.option_instructions)
             flat.extend(texts)
             counts.append(len(texts))
-        opt_vec = self.encode_unique(flat)  # (sum K, d)
-        k_max = max(counts)
-        options = opt_vec.new_zeros((len(questions), k_max, self.d))
-        valid = torch.zeros((len(questions), k_max), dtype=torch.bool, device=opt_vec.device)
+        tokens, token_mask = self.encode_unique(flat)  # (sum K, T, d), (sum K, T)
+        opt_vec = mean_pool(tokens, token_mask)  # (sum K, d)
+        b, k_max = len(questions), max(counts)
+        vectors = opt_vec.new_zeros((b, k_max, self.d))
+        valid = torch.zeros((b, k_max), dtype=torch.bool, device=opt_vec.device)
+        late = self.late_scale is not None
+        padded_tokens = tokens.new_zeros((b, k_max) + tokens.shape[1:]) if late else None
+        padded_mask = token_mask.new_zeros((b, k_max, token_mask.shape[1])) if late else None
         start = 0
         for i, k in enumerate(counts):
-            options[i, :k] = opt_vec[start : start + k]
+            vectors[i, :k] = opt_vec[start : start + k]
             valid[i, :k] = True
+            if late:
+                padded_tokens[i, :k] = tokens[start : start + k]
+                padded_mask[i, :k] = token_mask[start : start + k]
             start += k
-        return options, valid
+        return Options(vectors, valid, padded_tokens, padded_mask)
+
+    def late_interaction(
+        self, hidden: torch.Tensor, mask: torch.Tensor, options: Options
+    ) -> torch.Tensor:
+        """(B, K) mean over option tokens of the best cosine match among state tokens."""
+        h = F.normalize(hidden, dim=-1)
+        o = F.normalize(options.tokens, dim=-1)
+        sim = torch.einsum("bktd,bld->bktl", o, h.to(o.dtype))
+        sim = sim.masked_fill(~mask.bool()[:, None, None, :], -1.0)
+        best = sim.max(-1).values  # (B, K, T)
+        tm = options.token_mask.to(best.dtype)
+        return (best * tm).sum(-1) / tm.sum(-1).clamp(min=1.0)
 
     # --- decision --------------------------------------------------------------------------
 
@@ -208,10 +237,9 @@ class CompiledModel(nn.Module):
         hidden: torch.Tensor,
         mask: torch.Tensor,
         queries: torch.Tensor,
-        options: torch.Tensor,
-        valid: torch.Tensor,
+        options: Options,
     ):
-        """hidden (B, L, d) state tokens; queries (B, M, d); options (B, K, d) -> logits (B, K), evidence (B,)."""
+        """hidden (B, L, d) state tokens; queries (B, M, d) -> logits (B, K), evidence (B,)."""
         context, weights = self.attn(
             queries,
             hidden,
@@ -221,10 +249,12 @@ class CompiledModel(nn.Module):
             average_attn_weights=True,
         )
         z = self.reader(context.flatten(1))  # (B, d)
-        logits = torch.einsum("bd,bkd->bk", self.bilinear(z), options) / (
+        logits = torch.einsum("bd,bkd->bk", self.bilinear(z), options.vectors) / (
             self.d**0.5
-        ) + self.option_bias(options).squeeze(-1)
-        logits = logits.masked_fill(~valid, float("-inf"))
+        ) + self.option_bias(options.vectors).squeeze(-1)
+        if self.late_scale is not None:
+            logits = logits + self.late_scale * self.late_interaction(hidden, mask, options)
+        logits = logits.masked_fill(~options.valid, float("-inf"))
         # attention entropy over state tokens, averaged over slots: low entropy = focused evidence
         ent = (
             -(weights.clamp(min=1e-9) * weights.clamp(min=1e-9).log())
@@ -236,18 +266,18 @@ class CompiledModel(nn.Module):
 
     def forward(self, states: list[Any], questions: list[Question]):
         hidden, mask = self.encode_states(states)
-        queries, options, valid = self.compile_batch(questions)
-        return self.decide(hidden, mask, queries, options, valid)
+        queries, options = self.compile_batch(questions)
+        return self.decide(hidden, mask, queries, options)
 
     @torch.no_grad()
     def answer(self, state: Any, questions: dict[str, Question]) -> dict[str, Answer]:
         names = list(questions)
         qs = [questions[n] for n in names]
         hidden, mask = self.encode_states([state])
-        queries, options, valid = self.compile_batch(qs)
+        queries, options = self.compile_batch(qs)
         hidden = hidden.expand(len(qs), -1, -1)
         mask = mask.expand(len(qs), -1)
-        logits, evidence = self.decide(hidden, mask, queries, options, valid)
+        logits, evidence = self.decide(hidden, mask, queries, options)
         probs = torch.softmax(logits / self.temperature, dim=-1)
         ev = torch.sigmoid(evidence)
         out = {}
@@ -261,28 +291,19 @@ class CompiledModel(nn.Module):
         """Untrained baseline: cosine similarity between the pooled state and each option text."""
         hidden, mask = self.encode_states(states)
         s = F.normalize(mean_pool(hidden, mask), dim=-1)
-        _, options, valid = self.compile_batch(questions)
-        o = F.normalize(options, dim=-1)
+        _, options = self.compile_batch(questions)
+        o = F.normalize(options.vectors, dim=-1)
         logits = torch.einsum("bd,bkd->bk", s, o) * scale
-        return logits.masked_fill(~valid, float("-inf"))
+        return logits.masked_fill(~options.valid, float("-inf"))
 
 
 class CrossEncoderModel(CompiledModel):
     """Comparison tier: one encoder pass per (state, option) pair, scored by a linear head.
     Joint attention between state and option, at K passes per question."""
 
-    def __init__(
-        self,
-        encoder: nn.Module,
-        tokenizer,
-        encoder_id: str,
-        slots: int = 4,
-        heads: int = 8,
-        temperature: float = 1.0,
-    ):
-        super().__init__(
-            encoder, tokenizer, encoder_id, slots=slots, heads=heads, temperature=temperature
-        )
+    def __init__(self, encoder: nn.Module, tokenizer, encoder_id: str, **kw):
+        kw.pop("late_interaction", None)  # the joint pass already relates option and state
+        super().__init__(encoder, tokenizer, encoder_id, **kw)
         self.pair_head = nn.Linear(self.d, 1)
         self.pair_evidence = nn.Linear(self.d, 1)
         self.max_pair_tokens = 640
@@ -333,9 +354,9 @@ class ConditionedModel(CompiledModel):
             f"{q.instructions.strip()}{sep}{render_state(s)}" for s, q in zip(states, questions)
         ]
         hidden, mask = self.encode_tokens(texts, self.max_state_tokens + self.max_option_tokens)
-        options, valid = self.compile_options(questions)
+        options = self.compile_options(questions)
         queries = self.slots.unsqueeze(0).expand(len(questions), -1, -1)
-        return self.decide(hidden, mask, queries, options, valid)
+        return self.decide(hidden, mask, queries, options)
 
     @torch.no_grad()
     def answer(self, state: Any, questions: dict[str, Question]) -> dict[str, Answer]:

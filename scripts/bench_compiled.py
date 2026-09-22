@@ -49,10 +49,10 @@ def main() -> None:
             encode = timed(lambda: model.encode_states([STATE]), args.device, args.repeats)
             compile_ = timed(lambda qs=qs: model.compile_batch(qs), args.device, args.repeats)
             hidden, mask = model.encode_states([STATE])
-            queries, options, valid = model.compile_batch(qs)
+            queries, options = model.compile_batch(qs)
             h = hidden.expand(n, -1, -1)
             m = mask.expand(n, -1)
-            parts = (h, m, queries, options, valid)
+            parts = (h, m, queries, options)
             decide = timed(lambda parts=parts: model.decide(*parts), args.device, args.repeats)
             total = timed(
                 lambda qs=qs: model.answer(STATE, {f"q{i}": q for i, q in enumerate(qs)}),

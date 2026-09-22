@@ -120,3 +120,22 @@ def test_conditioned_forward_and_roundtrip(tmp_path):
     assert abs(sum(answers["team"].probabilities.values()) - 1.0) < 1e-4
     m.save_pretrained(str(tmp_path))
     assert isinstance(load_any(str(tmp_path), device=DEVICE), ConditionedModel)
+
+
+def test_late_interaction_rewards_option_text_present_in_state(tmp_path):
+    m = CompiledModel.from_encoder(ENCODER, device=DEVICE, late_interaction=True)
+    m.eval()
+    with torch.no_grad():
+        hidden, mask = m.encode_states([STATE])
+        options = m.compile_options([TEAM])
+        scores = m.late_interaction(hidden, mask, options)
+    assert scores.shape == (1, 3)
+    assert (
+        scores[0, 0] > scores[0, 2]
+    )  # "charges and refunds" appears in the state, "sales" does not
+    logits, _ = m([STATE], [TEAM])
+    assert logits.shape == (1, 3)
+    m.save_pretrained(str(tmp_path))
+    loaded = load_any(str(tmp_path), device=DEVICE)
+    assert loaded.late_scale is not None
+    assert loaded.late_scale.item() == pytest.approx(m.late_scale.item())
