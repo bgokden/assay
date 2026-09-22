@@ -33,7 +33,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
-import json
 import os
 import time
 from importlib.metadata import version
@@ -46,7 +45,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from assay.batching import Batcher, QueueFull
-from assay.conformal import CONFORMAL_FILE, decorate
+from assay.conformal import decorate, load_conformal
 from assay.graph import Graph, walk
 from assay.schema import Answer, Question
 
@@ -81,21 +80,6 @@ class BatchRequest(BaseModel):
 
     requests: list[SystemOneRequest] = Field(min_length=1, max_length=MAX_BATCH_REQUESTS)
     model: str | None = None
-
-
-def load_conformal(model: str) -> dict[str, Any] | None:
-    """Thresholds from a model directory or a Hub repository, when it has them."""
-    if model.startswith("base:"):
-        return None
-    if not os.path.isdir(model):
-        from huggingface_hub import snapshot_download
-
-        model = snapshot_download(model)
-    path = os.path.join(model, CONFORMAL_FILE)
-    if not os.path.exists(path):
-        return None
-    with open(path) as f:
-        return json.load(f)
 
 
 def create_app(

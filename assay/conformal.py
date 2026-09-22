@@ -146,6 +146,21 @@ def format_evaluation(name: str, ev: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def load_conformal(model: str) -> dict[str, Any] | None:
+    """Thresholds from a model directory or a Hub repository, when it has them."""
+    if model.startswith("base:"):
+        return None
+    if not os.path.isdir(model):
+        from huggingface_hub import snapshot_download
+
+        model = snapshot_download(model)
+    path = os.path.join(model, CONFORMAL_FILE)
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True, help="model directory with calibration.scored.jsonl")

@@ -21,10 +21,9 @@ from typing import Any
 
 import torch
 
-from assay.conformal import decorate
+from assay.conformal import decorate, load_conformal
 from assay.evaluate import load_model
 from assay.schema import Question
-from assay.server import load_conformal
 from assay.serving import runner_for
 
 
