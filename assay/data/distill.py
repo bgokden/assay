@@ -200,6 +200,9 @@ def main() -> None:
         "--corpus", help="states file from assay.data.corpus: label these with the rubric bank"
     )
     ap.add_argument("--corpus-out", default="corpus_labels.jsonl", help="output name under --out")
+    ap.add_argument(
+        "--corpus-limit", type=int, help="label only the first N states (the file is shuffled)"
+    )
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     rng = random.Random(args.seed)
@@ -210,6 +213,8 @@ def main() -> None:
         with open(args.corpus) as f:
             for line in f:
                 states.append(json.loads(line)["state"])
+                if args.corpus_limit and len(states) >= args.corpus_limit:
+                    break
         per_state = [rng.sample(bank, args.questions_per_text) for _ in states]
         print(
             f"{len(states)} states x {args.questions_per_text} questions from a bank of {len(bank)}; loading teacher",
