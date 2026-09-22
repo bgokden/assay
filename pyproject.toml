@@ -43,6 +43,7 @@ torch = { index = "pytorch-cu128" }
 
 [tool.ruff]
 line-length = 100
+extend-exclude = ["*.md"]  # the formatter would rewrite the code samples in the documentation
 
 [dependency-groups]
 dev = [

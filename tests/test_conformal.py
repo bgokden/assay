@@ -74,4 +74,6 @@ def test_fit_evaluate_and_decorate():
     decorate(answer, q, thresholds)
     assert answer["act"] == should_act([0.05, 0.9, 0.05], "choice", thresholds)
     assert "b" in answer["set"]
-    assert [q.keys[i] for i in prediction_set([0.05, 0.9, 0.05], "choice", thresholds)] == answer["set"]
+    assert [q.keys[i] for i in prediction_set([0.05, 0.9, 0.05], "choice", thresholds)] == answer[
+        "set"
+    ]

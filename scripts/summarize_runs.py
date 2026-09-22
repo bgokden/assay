@@ -1,6 +1,6 @@
 """Print a markdown table of every run's evaluation results.
 
-    uv run python scripts/summarize_runs.py runs/base-1.7b runs/assay-1.7b runs/assay-4b
+uv run python scripts/summarize_runs.py runs/base-1.7b runs/assay-1.7b runs/assay-4b
 """
 
 from __future__ import annotations
@@ -32,7 +32,11 @@ def main(runs: list[str]) -> None:
     print("| run | " + " | ".join(name for name, _ in SPLITS) + " |")
     print("|---|" + "---|" * len(SPLITS))
     for run in runs:
-        print(f"| {os.path.basename(run.rstrip('/'))} | " + " | ".join(cell(run, fn) for _, fn in SPLITS) + " |")
+        print(
+            f"| {os.path.basename(run.rstrip('/'))} | "
+            + " | ".join(cell(run, fn) for _, fn in SPLITS)
+            + " |"
+        )
     print("\ncells: accuracy / Brier / ECE")
 
 

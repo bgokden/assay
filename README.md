@@ -194,6 +194,7 @@ and per-family numbers in `docs/roadmap.md`.
 ```bash
 uv sync
 uv run pytest                                             # unit tests (downloads Qwen3-0.6B)
+uv run ruff check . && uv run ruff format --check .        # lint and formatting
 uv run python -m assay.server --model Berk/assay-4b       # POST /v1/decide on :8000
 ```
 

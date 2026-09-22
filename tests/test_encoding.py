@@ -89,7 +89,9 @@ def test_collate_shapes(tok_alphabet):
         Question(type="choice", instructions="b?", options={"p": None, "q": None, "r": None}),
         Question(type="score", instructions="c?", levels=["lo", "hi"]),
     ]
-    batch = collate([encode(tok, alphabet, "one", q1), encode(tok, alphabet, "two two", q2)], tok.pad_token_id)
+    batch = collate(
+        [encode(tok, alphabet, "one", q1), encode(tok, alphabet, "two two", q2)], tok.pad_token_id
+    )
     assert batch.input_ids.shape[0] == 2
     assert batch.attention_mask.shape == (2, 1, batch.input_ids.shape[1], batch.input_ids.shape[1])
     assert batch.num_questions == 3
