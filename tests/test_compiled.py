@@ -139,3 +139,22 @@ def test_late_interaction_rewards_option_text_present_in_state(tmp_path):
     loaded = load_any(str(tmp_path), device=DEVICE)
     assert loaded.late_scale is not None
     assert loaded.late_scale.item() == pytest.approx(m.late_scale.item())
+
+
+def test_joint_reader_forward_and_roundtrip(tmp_path):
+    from assay.compiled import JointReaderModel
+
+    m = JointReaderModel.from_encoder(ENCODER, device=DEVICE, reader_layers=2)
+    m.eval()
+    logits, evidence = m([STATE, STATE], [TEAM, REFUND])
+    assert logits.shape == (2, 3) and evidence.shape == (2,)
+    assert torch.isinf(logits[1, 2]) and torch.isfinite(logits[0]).all()
+    answers = m.answer(STATE, {"team": TEAM, "anger": ANGER})
+    assert abs(sum(answers["team"].probabilities.values()) - 1.0) < 1e-4
+    m.save_pretrained(str(tmp_path))
+    loaded = load_any(str(tmp_path), device=DEVICE)
+    assert isinstance(loaded, JointReaderModel) and len(loaded.reader_layers) == 2
+    a = m.answer(STATE, {"team": TEAM})["team"].probabilities
+    b = loaded.answer(STATE, {"team": TEAM})["team"].probabilities
+    for key in TEAM.keys:
+        assert b[key] == pytest.approx(a[key], abs=1e-4)

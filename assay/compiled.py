@@ -115,6 +115,7 @@ class CompiledModel(nn.Module):
         # models saved before 2026-09-22 were trained with the instruction inside every option
         self.option_instructions = False
         self.pooling = "mean"
+        self.keeps_option_tokens = False  # readers that need option tokens set this
 
     # --- construction ---------------------------------------------------------------------
 
@@ -123,19 +124,19 @@ class CompiledModel(nn.Module):
         cls,
         encoder_id: str,
         device: str = "cuda",
-        layers: int | None = None,
+        encoder_layers: int | None = None,
         pooling: str = "mean",
         lora_r: int | None = None,
         **kw,
     ) -> CompiledModel:
-        """layers: keep only the first N blocks. pooling: "mean" for bidirectional encoders,
+        """encoder_layers: keep only the first N backbone blocks. pooling: "mean" for bidirectional encoders,
         "last" for causal backbones. lora_r: train the backbone through a LoRA adapter (merged
         into the weights on save) instead of fully."""
         tokenizer = AutoTokenizer.from_pretrained(encoder_id)
         dtype = torch.bfloat16 if lora_r else torch.float32
         encoder = AutoModel.from_pretrained(encoder_id, dtype=dtype)
-        if layers is not None:
-            truncate_layers(encoder, layers)
+        if encoder_layers is not None:
+            truncate_layers(encoder, encoder_layers)
         if lora_r:
             from peft import LoraConfig, get_peft_model
 
@@ -169,6 +170,7 @@ class CompiledModel(nn.Module):
             config = json.load(f)
         tokenizer = AutoTokenizer.from_pretrained(path)
         encoder = AutoModel.from_pretrained(path, dtype=torch.float32)
+        extra = {"reader_layers": config["reader_layers"]} if config.get("reader_layers") else {}
         model = cls(
             encoder,
             tokenizer,
@@ -177,6 +179,7 @@ class CompiledModel(nn.Module):
             heads=config["heads"],
             temperature=config.get("temperature", 1.0),
             late_interaction=config.get("late_interaction", False),
+            **extra,
         )
         model.option_instructions = config.get("option_instructions", True)
         model.pooling = config.get("pooling", "mean")
@@ -185,6 +188,7 @@ class CompiledModel(nn.Module):
         missing = [m for m in missing if not m.startswith("encoder.")]
         if missing or unexpected:
             raise ValueError(f"weights mismatch: missing {missing[:5]} unexpected {unexpected[:5]}")
+        model.eval()
         return model.to(device)
 
     def save_pretrained(self, path: str) -> None:
@@ -210,6 +214,9 @@ class CompiledModel(nn.Module):
                     "pooling": self.pooling,
                     "late_interaction": self.late_scale is not None,
                     "arch": arch_name(self),
+                    "reader_layers": len(self.reader_layers)
+                    if hasattr(self, "reader_layers")
+                    else None,
                 },
                 f,
                 indent=2,
@@ -232,12 +239,14 @@ class CompiledModel(nn.Module):
     def pool(self, hidden: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         return POOLING[self.pooling](hidden, mask)
 
-    def encode_unique(self, texts: list[str]) -> tuple[torch.Tensor, torch.Tensor]:
+    def encode_unique(
+        self, texts: list[str], max_tokens: int | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Token encodings (N, T, d) and mask (N, T) for texts, encoding each distinct text
         once."""
         unique = list(dict.fromkeys(texts))
         index = {t: i for i, t in enumerate(unique)}
-        hidden, mask = self.encode_tokens(unique, self.max_option_tokens)
+        hidden, mask = self.encode_tokens(unique, max_tokens or self.max_option_tokens)
         gather = torch.tensor([index[t] for t in texts], device=hidden.device)
         return hidden[gather], mask[gather]
 
@@ -272,7 +281,7 @@ class CompiledModel(nn.Module):
             vectors[i, :k] = opt_vec[start : start + k]
             valid[i, :k] = True
             start += k
-        if self.late_scale is None:
+        if self.late_scale is None and not self.keeps_option_tokens:
             return Options(vectors, valid, counts)
         return Options(vectors, valid, counts, tokens, token_mask)
 
@@ -436,10 +445,112 @@ class ConditionedModel(CompiledModel):
         }
 
 
+class JointReaderModel(CompiledModel):
+    """Compiled tier with a deeper reader: the instruction tokens and every option's tokens form
+    one sequence that self-attends (options compare with each other and with the instruction)
+    and cross-attends into the cached state tokens, over a few Transformer layers. The state
+    is still encoded once and never updated; each option is scored from its own tokens after
+    the reader, plus the late-interaction term. One reader pass per question with all its
+    options together, so the cost is one encoder pass per state and a small Transformer per
+    question, never a pass per option."""
+
+    def __init__(
+        self, encoder: nn.Module, tokenizer, encoder_id: str, reader_layers: int = 3, **kw
+    ):
+        kw.setdefault("late_interaction", True)
+        super().__init__(encoder, tokenizer, encoder_id, **kw)
+        self.reader_layers = nn.ModuleList(
+            nn.TransformerDecoderLayer(
+                self.d,
+                self.attn.num_heads,
+                2 * self.d,
+                dropout=0.1,
+                batch_first=True,
+                norm_first=True,
+            )
+            for _ in range(reader_layers)
+        )
+        for layer in self.reader_layers:  # each block starts as the identity on its input
+            nn.init.zeros_(layer.multihead_attn.out_proj.weight)
+            nn.init.zeros_(layer.self_attn.out_proj.weight)
+            nn.init.zeros_(layer.linear2.weight)
+        self.option_head = nn.Linear(self.d, 1)
+        self.joint_evidence = nn.Linear(self.d, 1)
+        self.max_instruction_tokens = 48
+        self.max_option_tokens = 32
+        self.keeps_option_tokens = True
+
+    def read(
+        self, hidden: torch.Tensor, mask: torch.Tensor, options: Options, ins_tokens, ins_mask
+    ):
+        """Per question: run the reader over [instruction tokens; option tokens] against the
+        state tokens; returns logits (B, K_max) and evidence (B,)."""
+        b = hidden.shape[0]
+        logits = hidden.new_full(options.valid.shape, float("-inf"))
+        evidence = hidden.new_zeros(b)
+        state_pad = ~mask.bool()
+        start = 0
+        for i, k in enumerate(options.counts):
+            opt = options.tokens[start : start + k]  # (k, T, d)
+            opt_mask = options.token_mask[start : start + k].bool()  # (k, T)
+            t_q = int(ins_mask[i].sum())
+            seq = torch.cat([ins_tokens[i, :t_q], opt.flatten(0, 1)], dim=0).unsqueeze(
+                0
+            )  # (1, L, d)
+            pad = torch.cat([ins_mask.new_zeros(t_q, dtype=torch.bool), ~opt_mask.flatten()])[None]
+            x = seq
+            for layer in self.reader_layers:
+                x = layer(
+                    x,
+                    hidden[i : i + 1],
+                    tgt_key_padding_mask=pad,
+                    memory_key_padding_mask=state_pad[i : i + 1],
+                )
+            x = x[0]
+            q_vec = x[:t_q].mean(0)
+            o = x[t_q:].view(k, -1, self.d)
+            om = opt_mask.to(o.dtype).unsqueeze(-1)
+            pooled = (o * om).sum(1) / om.sum(1).clamp(min=1.0)  # (k, d)
+            logits[i, :k] = self.option_head(pooled).squeeze(-1)
+            evidence[i] = self.joint_evidence(q_vec).squeeze(-1)
+            start += k
+        if self.late_scale is not None:
+            logits = logits + self.late_scale * self.late_interaction(hidden, mask, options)
+        return logits.masked_fill(~options.valid, float("-inf")), evidence
+
+    def forward(self, states: list[Any], questions: list[Question]):
+        hidden, mask = self.encode_states(states)
+        options = self.compile_options(questions)
+        ins_tokens, ins_mask = self.encode_unique(
+            [q.instructions.strip() for q in questions], max_tokens=self.max_instruction_tokens
+        )
+        return self.read(hidden, mask, options, ins_tokens, ins_mask)
+
+    @torch.no_grad()
+    def answer(self, state: Any, questions: dict[str, Question]) -> dict[str, Answer]:
+        names = list(questions)
+        qs = [questions[n] for n in names]
+        hidden, mask = self.encode_states([state])
+        options = self.compile_options(qs)
+        ins_tokens, ins_mask = self.encode_unique(
+            [q.instructions.strip() for q in qs], max_tokens=self.max_instruction_tokens
+        )
+        logits, evidence = self.read(
+            hidden.expand(len(qs), -1, -1), mask.expand(len(qs), -1), options, ins_tokens, ins_mask
+        )
+        probs = torch.softmax(logits / self.temperature, dim=-1)
+        ev = torch.sigmoid(evidence)
+        return {
+            n: make_answer(q, probs[i, : len(q.keys)].tolist(), ev[i].item())
+            for i, (n, q) in enumerate(zip(names, qs))
+        }
+
+
 ARCHITECTURES: dict[str, type[CompiledModel]] = {
     "compiled": CompiledModel,
     "conditioned": ConditionedModel,
     "cross": CrossEncoderModel,
+    "joint": JointReaderModel,
 }
 
 

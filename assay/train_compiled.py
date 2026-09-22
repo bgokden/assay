@@ -224,6 +224,7 @@ def main() -> None:
     ap.add_argument(
         "--lora", type=int, help="LoRA rank for the backbone instead of full fine-tuning"
     )
+    ap.add_argument("--reader-layers", type=int, default=3, help="joint reader depth (arch joint)")
     ap.add_argument(
         "--late-interaction",
         action="store_true",
@@ -231,19 +232,23 @@ def main() -> None:
     )
     args = ap.parse_args()
     if args.pair_budget is None:
-        args.pair_budget = {"cross": 64, "conditioned": 256, "compiled": 256}[args.arch]
+        args.pair_budget = {"cross": 64, "conditioned": 256, "compiled": 256, "joint": 128}[
+            args.arch
+        ]
 
     torch.manual_seed(args.seed)
     os.makedirs(args.out, exist_ok=True)
     with open(os.path.join(args.out, "train_args.json"), "w") as f:
         json.dump(vars(args), f, indent=2)
+    extra = {"reader_layers": args.reader_layers} if args.arch == "joint" else {}
     model = ARCHITECTURES[args.arch].from_encoder(
         args.encoder,
-        layers=args.encoder_layers,
+        encoder_layers=args.encoder_layers,
         pooling=args.pooling,
         lora_r=args.lora,
         slots=args.slots,
-        late_interaction=args.late_interaction,
+        late_interaction=args.late_interaction or args.arch == "joint",
+        **extra,
     )
     model.max_state_tokens = args.max_state_tokens
     if args.arch != "compiled":
