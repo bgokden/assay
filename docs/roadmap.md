@@ -81,6 +81,17 @@ scaling.
 | compiled, 3 epochs, lr 5e-5, 8 slots, content-only options | 0.642 / 0.455 / 0.038 | 0.561 / 0.517 / 0.045 | 0.423 / 0.635 / 0.090 |
 | conditioned (instruction + state in one pass, compiled options), 2 epochs | 0.652 / 0.434 / 0.027 | 0.564 / 0.515 / 0.034 | 0.445 / 0.621 / 0.081 |
 | compiled + late interaction (MaxSim option tokens x state tokens), 3 epochs | 0.668 / 0.442 / 0.037 | 0.606 / 0.494 / 0.061 | **0.542 / 0.572 / 0.095** |
+| conditioned + late interaction, 2 epochs | 0.678 / 0.417 / 0.031 | 0.616 / 0.471 / 0.038 | 0.537 / 0.583 / 0.127 |
+
+Verdict (2026-09-22 morning): the late-interaction term is what the compiled reader was
+missing. With it the compiled tier is 1.3 points behind the cross-encoder on unseen tasks
+and ahead of it on the transfer suite (SciQ 0.23 -> 0.76, deadline 0.30 -> 0.63: option text
+that appears in the state is now found), inside the 5-point rule, while keeping the
+encode-once decision path (3 ms for six decisions on a CPU after the state encode). The
+conditioned variant matches the cross-encoder on unseen tasks at one encoder pass per
+question instead of per option. Published: `Berk/assay-compiled-base` (compiled + late
+interaction). All encoder tiers remain far below the decoders (unseen tasks 0.61 against
+0.75-0.84); they are the on-device tier, not a replacement.
 
 The first compiled run underfits (train loss 0.86 against 0.4-0.6 for the decoders, still
 falling when the schedule ended) and had a design flaw: every option text began with the
@@ -117,7 +128,7 @@ decoders on classification-shaped tasks, well below them on knowledge and rules 
 on the transfer suite). Measured on holdout ECE and cost per decision like every tier.
 Drop if: a cross-encoder with the same backbone beats it by more than 5 points on the holdout.
 
-### 4. Cross-encoder tier, only if 3 loses badly
+### 4. Cross-encoder tier, only if 3 loses badly (built as the comparison; not published)
 
 Entailment-style encoder: `[state + question] [SEP] [option description]`, one pass per
 option, NLI-pretrained start, fine-tuned with the same targets. Cheap to build from the
