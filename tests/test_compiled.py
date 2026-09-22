@@ -237,3 +237,26 @@ def test_a_graph_over_the_encoder_tier_runs_in_one_pass(model):
         "questions": 3,
         "forward_passes": 1,
     }
+
+
+def test_apply_scores_a_file_of_states(model, tmp_path):
+    """The bulk path and the server share the runner, so any tier scores a file."""
+    import json
+
+    from assay.apply import apply_model, read_states
+
+    states = tmp_path / "states.jsonl"
+    states.write_text(
+        json.dumps({"message": "Refund my duplicate charge."})
+        + "\n"
+        + json.dumps({"state": {"message": "The dashboard is down."}, "meta": {"id": "x/1"}})
+        + "\n"
+    )
+    records = list(
+        apply_model(model, {"team": TEAM, "refund": REFUND}, read_states(str(states)), batch_size=2)
+    )
+    assert [r["id"] for r in records] == [0, "x/1"]
+    for r in records:
+        assert set(r["answers"]) == {"team", "refund"}
+        assert r["answers"]["team"]["choice"] in ("billing", "technical", "sales")
+        assert 0.0 <= r["answers"]["refund"]["p_true"] <= 1.0

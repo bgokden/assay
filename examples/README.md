@@ -62,12 +62,18 @@ is separable and the numbers say nothing about a real dataset. Put your own data
 same output becomes informative. `support-decoder.json` does the same for the decoder tier,
 which needs a GPU; the encoder tier trains on a CPU, slowly.
 
-Afterwards:
+Afterwards, serve it, score a file with it, or publish it:
 
 ```bash
 python -m assay.server --model runs/example-support-encoder --port 8000
+python -m assay.apply --model runs/example-support-encoder --questions questions.json \
+    --states tickets.jsonl --out answers.jsonl
 python -m assay.publish --run runs/example-support-encoder --repo <user>/<name>
 ```
+
+`questions.json` is the question set in the request shape, `tickets.jsonl` is one state per
+line (a bare value, or a record with a `state` field), and each answer line carries the
+calibrated probabilities with `act` and `set` when the model has conformal thresholds.
 
 ## Data written for other decision models
 

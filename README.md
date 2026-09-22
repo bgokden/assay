@@ -226,6 +226,8 @@ uv run python examples/support_data.py                                  # a data
 uv run python -m assay.pipeline --config examples/pipelines/support-encoder.json --dry-run
 uv run python -m assay.pipeline --config examples/pipelines/support-encoder.json
 uv run python -m assay.server --model runs/example-support-encoder      # the same server, your model
+uv run python -m assay.apply --model runs/example-support-encoder \
+    --questions questions.json --states tickets.jsonl --out answers.jsonl   # score a file
 ```
 
 ```json
