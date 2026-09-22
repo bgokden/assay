@@ -1,0 +1,9 @@
+{
+  "name": "support-seq2seq",
+  "tier": "seq2seq",
+  "base_model": "google/t5gemma-2-270m-270m",
+  "data": "examples/data/support",
+  "out": "runs/example-support-seq2seq",
+  "train": {"epochs": 1, "lr": 1e-4, "batch_size": 16, "lora": 16, "pair_budget": 64, "max_state_tokens": 512},
+  "conformal": {"alpha": 0.1, "delta": 0.05}
+}

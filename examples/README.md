@@ -59,8 +59,8 @@ separate processes, skipping any stage whose output is already there, and writes
 `pipeline.json` with the numbers. The whole run takes about six minutes on a CPU, and it
 scores 1.00 with a Brier of 1e-7: the tickets come from a handful of templates, so the task
 is separable and the numbers say nothing about a real dataset. Put your own data in and the
-same output becomes informative. `support-decoder.json` does the same for the decoder tier,
-which needs a GPU; the encoder tier trains on a CPU, slowly.
+same output becomes informative. `support-decoder.json` and `support-seq2seq.json` do the same for the other two tiers; the
+decoder tier wants a GPU, the other two train on a CPU, slowly.
 
 Afterwards, serve it, score a file with it, or publish it:
 
