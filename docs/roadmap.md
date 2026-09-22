@@ -254,6 +254,33 @@ scripts for the model API, decision graphs and both server interfaces. Two chang
 making the example work on a machine without a GPU: the compiled trainer takes its evaluation
 splits as `name=path` instead of assuming ours, and autocast follows the device it was given.
 
+### 8. Encoder-decoder tier (2026-09-22/23)
+
+The encoder tier failed because a learned head on frozen-ish features is worse than reading a
+language model's own next-token distribution. An encoder-decoder is the smallest thing that
+still reads a distribution: T5Gemma-2 270m-270m, LoRA on both stacks, the answer taken from
+the decoder's first position over the same single-token option labels the decoder tier uses.
+
+Two arrangements, same data (v4 plus the generic distillation set), same schedule:
+
+| arrangement | seen (dev) | unseen (holdout) | transfer-v4 |
+|---|---|---|---|
+| state and question in the encoder | 0.685 / 0.418 | 0.615 / 0.468 | 0.579 / 0.504 |
+| state in the encoder, question in the decoder | 0.641 / 0.438 | 0.475 / 0.619 | 0.480 / 0.596 |
+
+The second arrangement is the interesting one and it loses: putting only the state in the
+encoder means one encoder pass could serve every question of a request, which is the packing
+property the decoder tier gets for free. It costs 14 points of unseen accuracy, so the tier
+pays for one pass per question. Zero-shot, before any training, both arrangements sit at
+0.34-0.39.
+
+Against the other small models: the trained encoder tier is 0.606 / 0.542 and assay-0.6b is
+0.704 / 0.636 at 0.6B parameters, answering 24 questions in the same pass. The
+encoder-decoder lands between them on unseen tasks (0.615) and above the encoder tier on
+transfer (0.579 against 0.542), while costing a pass per question. It is a better encoder
+tier, not a competitor to the small decoder, which is the same conclusion as step 3 seen from
+the other side: the readout is what matters, and a decoder-only model reads best.
+
 ### Serving: what an inference engine can and cannot do for this model (researched 2026-09-22)
 
 A decision is one prefill forward pass with two outputs: the next-token logits at the decision
