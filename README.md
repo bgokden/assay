@@ -146,6 +146,33 @@ PAWS and offensive language.
 questions packed over the same state (548 ms as separate requests). 27B in 4-bit, 110 ms for
 one question; hybrid backbones are not packed yet, so 24 questions run as a batch in 750 ms.
 
+## Encoder tier: decisions without a language model
+
+`assay.compiled` is a second architecture with the same interface and no LM: an encoder
+(gte-modernbert-base, 149M) turns the state into token embeddings once and compiles each
+question once into query vectors (from the instruction) and option vectors plus option token
+encodings (from the option text). A decision is cross-attention from the queries over the
+state tokens, a bilinear score against each option vector, and a late-interaction term (each
+option token's best cosine match among the state tokens, ColBERT-style). Options are scored by
+their own content, so there is no label alphabet and answers are order-invariant by
+construction; compiled questions can be cached across states.
+
+| model | seen tasks (dev) | unseen tasks (holdout) | kev transfer-v4 |
+|---|---|---|---|
+| untrained cosine baseline | 0.417 / 0.665 / 0.116 | 0.541 / 0.563 / 0.067 | 0.514 / 0.585 / 0.075 |
+| cross-encoder, same backbone (one pass per option) | 0.670 / 0.422 / 0.027 | 0.619 / 0.479 / 0.025 | 0.527 / 0.531 / 0.061 |
+| **assay-compiled-base** (compiled + late interaction) | 0.668 / 0.442 / 0.037 | 0.606 / 0.494 / 0.061 | 0.542 / 0.572 / 0.095 |
+
+It sits at the level of the untrained 1.7B decoder on unseen tasks: strong on single-text
+classification (topic, sentiment, spam at 0.9+), near chance on knowledge (MMLU 0.25) and
+multi-step reasoning. Its point is cost: on a CPU with 8 threads, encoding a state takes
+30 ms, compiling six questions 90 ms once, and then deciding all six takes 3 ms
+(`scripts/bench_compiled.py`). Without the late-interaction term the same model scores 0.561 on
+unseen tasks and 0.423 on the transfer suite; the cross-encoder is the ceiling for this
+backbone and costs one encoder pass per option. Published as
+[Berk/assay-compiled-base](https://huggingface.co/Berk/assay-compiled-base); trained with
+`assay.train_compiled`, details and the dropped variants in `docs/roadmap.md`.
+
 ## Install and run
 
 ```bash
