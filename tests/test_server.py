@@ -184,3 +184,63 @@ def test_concurrent_requests_share_forward_passes(client):
     after = client.get("/v1/stats").json()
     assert after["requests"] - before["requests"] >= 8
     assert after["batches"] - before["batches"] <= 8
+
+
+SYSTEM_ONE_BODY = {
+    "model": "assay",
+    "state": "Customer reports a duplicate charge and asks for a refund.",
+    "questions": {
+        "route": {
+            "type": "choice",
+            "instructions": "Which team should handle this request?",
+            "criteria": {"billing": "Payments and refunds", "technical": "Product faults"},
+        },
+        "refund_requested": {"type": "noul", "instructions": "Did the customer request a refund?"},
+        "urgency": {
+            "type": "score",
+            "instructions": "How urgent is this?",
+            "criteria": ["Not urgent", "Soon", "Immediate"],
+        },
+    },
+}
+
+
+def test_systemone_interface(client):
+    """The payload other open decision models accept: `criteria` options and the noul type."""
+    r = client.post("/v1/systemone", json=SYSTEM_ONE_BODY)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["choices"]["route"]["choice"] in ("billing", "technical")
+    assert 0.0 <= out["nouls"]["refund_requested"]["noul"] <= 1.0
+    assert 0.0 <= out["scores"]["urgency"]["score"] <= 2.0
+    assert out["scores"]["urgency"]["legend"]["2"] == "Immediate"
+    for group in ("choices", "nouls", "scores"):
+        for answer in out[group].values():
+            assert abs(sum(answer["probabilities"].values()) - 1.0) < 1e-3
+            assert 0.0 <= answer["confidence"] <= 1.0
+            assert 0.0 <= answer["evidence"] <= 1.0
+
+
+def test_systemone_and_decide_agree(client):
+    """Both interfaces are the same model and parser, so they must give the same numbers."""
+    native = {
+        "state": SYSTEM_ONE_BODY["state"],
+        "questions": {
+            "route": {
+                "type": "choice",
+                "instructions": "Which team should handle this request?",
+                "options": {"billing": "Payments and refunds", "technical": "Product faults"},
+            },
+            "refund_requested": {
+                "type": "bool",
+                "instructions": "Did the customer request a refund?",
+            },
+        },
+    }
+    a = client.post("/v1/decide", json=native).json()["answers"]
+    b = client.post("/v1/systemone", json=SYSTEM_ONE_BODY).json()
+    for key, value in a["route"]["probabilities"].items():
+        assert b["choices"]["route"]["probabilities"][key] == pytest.approx(value, abs=1e-4)
+    assert b["nouls"]["refund_requested"]["noul"] == pytest.approx(
+        a["refund_requested"]["p_true"], abs=1e-4
+    )

@@ -58,6 +58,20 @@ weaker model the same constants silently act on 42% of questions at 23% error. T
 argument for fitting thresholds per model and per question type with a stated error rate
 (`assay.conformal`) rather than carrying constants between models.
 
+**Decision 1.0** (vLLM Semantic Router, announced 2026-09-22): six Apache-2.0 models, Kai-0.6B
+and Lex-0.6B (encoders), Eos-0.8B (hybrid decoder), Sol-2B, Nox-4B, Lux-9B, served at
+`/v1/systemone` with the same three primitives we use. Reported on their own 54-task, 3,766
+decision suite: Lux-9B 76.94, Nox-4B 73.09, Sol-2B 66.32, Eos-0.8B 61.89, Kai-0.6B 53.52 -
+not comparable to our numbers, which are on different splits. Two things matter for us. Their
+tiering reproduces what we measured independently on 2026-09-22: the 0.6B encoder is the weak
+tier (53.52) and a 0.8B decoder beats it (61.89), the same ordering and roughly the same gap as
+our 0.553 for a 0.6B under a learned reader against 0.704 reading out of the same weights. And
+their request shape is becoming a common interface, so `assay.server` now serves `/v1/systemone`
+alongside its own endpoint: one parser accepts both shapes (`criteria` as well as `options`,
+`noul` as well as `bool`). The response groups answers as their SDK reads them
+(`choices[name].choice`, `nouls[name].noul`, `scores[name].score`); their response schema is
+not published verbatim, so that grouping is read off their SDK accessors and may need adjusting.
+
 Evaluation resources: `jaredpalmer/kev-suites` (HF dataset; transfer-v4 dev = 764 items from
 mmlu, emotion, sciq, tweet_offensive, qnli, paws + synthetic rule holdouts; Jev numbers
 published on it), `jabr/classifier-benchmark` (78 cases, 8 tasks).

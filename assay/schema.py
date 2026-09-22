@@ -72,12 +72,31 @@ class Question:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Question:
+        """Accepts our own shape and the `criteria` shape used by System One style APIs and by
+        kev-suites: criteria is a map of option key to description for choice, an ordered list
+        of levels for score, and true/false (or yes/no) descriptions for noul."""
+        t = d["type"]
+        instructions = d["instructions"]
+        if "criteria" in d and d["criteria"] is not None:
+            criteria = d["criteria"]
+            if t == "choice":
+                options = (
+                    criteria if isinstance(criteria, dict) else {str(k): None for k in criteria}
+                )
+                return cls(type=t, instructions=instructions, options=options)
+            if t == "score":
+                return cls(type=t, instructions=instructions, levels=list(criteria))
+            yes = no = None
+            if isinstance(criteria, dict):
+                yes = criteria.get("true", criteria.get("yes"))
+                no = criteria.get("false", criteria.get("no"))
+            return cls(type=t, instructions=instructions, yes=yes, no=no)
         options = d.get("options")
         if options is not None and isinstance(options, list):
             options = {str(k): None for k in options}
         return cls(
-            type=d["type"],
-            instructions=d["instructions"],
+            type=t,
+            instructions=instructions,
             options=options,
             levels=d.get("levels"),
             yes=d.get("yes"),

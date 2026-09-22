@@ -61,27 +61,8 @@ def _label_to_index(question: Question, label: Any) -> int:
     return keys.index(str(label))
 
 
-def _question_from_criteria(q: dict[str, Any]) -> Question:
-    """Convert a `criteria`-style question (kev-suites / Jev) to our schema."""
-    t = q["type"]
-    criteria = q.get("criteria")
-    if t == "choice":
-        options = criteria if isinstance(criteria, dict) else {str(k): None for k in criteria}
-        return Question(type="choice", instructions=q["instructions"], options=options)
-    if t == "score":
-        return Question(type="score", instructions=q["instructions"], levels=list(criteria))
-    yes = no = None
-    if isinstance(criteria, dict):
-        yes = criteria.get("true", criteria.get("yes"))
-        no = criteria.get("false", criteria.get("no"))
-    return Question(type="bool", instructions=q["instructions"], yes=yes, no=no)
-
-
 def parse_question(name: str, q: dict[str, Any], default_source: str) -> LabeledQuestion:
-    if "criteria" in q:
-        question = _question_from_criteria(q)
-    else:
-        question = Question.from_dict(q)
+    question = Question.from_dict(q)  # handles our shape and the criteria shape alike
     label_index = _label_to_index(question, q["label"])
     keys = question.keys
     if q.get("target"):

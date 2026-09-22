@@ -9,6 +9,10 @@ Request:
 Response:
     {"model": "...", "answers": {"name": {...}}, "usage": {"input_tokens": n}, "latency_ms": t}
 
+POST /v1/systemone accepts the System One style payload other open decision models use
+(questions typed choice/noul/score with options under `criteria`) and groups the answers by
+type, so clients written for that interface work unchanged.
+
 POST /v1/decide_graph walks a decision tree: a start node, question nodes whose edges are
 keyed by the chosen option, and outcome nodes. Every question in the graph is answered in one
 forward pass (branches are isolated over the shared state), so a whole tree costs what one
@@ -56,6 +60,15 @@ class DecideRequest(BaseModel):
 class GraphRequest(BaseModel):
     state: Any
     graph: dict[str, Any]
+
+
+class SystemOneRequest(BaseModel):
+    """The System One style payload used by other open decision models: a state, named
+    questions typed choice/noul/score, and options under `criteria`."""
+
+    state: Any
+    questions: dict[str, dict[str, Any]] = Field(min_length=1, max_length=MAX_QUESTIONS)
+    model: str | None = None
 
 
 def load_conformal(model: str) -> dict[str, Any] | None:
@@ -155,6 +168,34 @@ def create_app(
         return {
             "model": model_name,
             "answers": out,
+            "usage": {"input_tokens": tokens},
+            "latency_ms": round(elapsed, 1),
+        }
+
+    @app.post("/v1/systemone")
+    async def systemone(req: SystemOneRequest) -> dict[str, Any]:
+        """Compatible with the System One interface other open decision models expose, so the
+        same client can call this server. The request shape is theirs (`criteria`, `noul`);
+        the response groups answers by type the way their SDK reads them
+        (`choices[name].choice`, `nouls[name].noul`, `scores[name].score`) and adds our own
+        fields: confidence, evidence, and act/set when conformal thresholds are fitted."""
+        t0 = time.perf_counter()
+        questions = parse(req.questions)
+        out, tokens = await run(req.state, questions)
+        grouped: dict[str, dict[str, Any]] = {"choices": {}, "nouls": {}, "scores": {}}
+        for name, question in questions.items():
+            answer = out[name]
+            if question.type == "choice":
+                grouped["choices"][name] = {"choice": answer["choice"], **answer}
+            elif question.type == "bool":
+                grouped["nouls"][name] = {"noul": answer["p_true"], **answer}
+            else:
+                grouped["scores"][name] = {"score": answer["score"], **answer}
+        elapsed = (time.perf_counter() - t0) * 1000.0
+        batcher.metrics.observe_request(elapsed)
+        return {
+            "model": model_name,
+            **grouped,
             "usage": {"input_tokens": tokens},
             "latency_ms": round(elapsed, 1),
         }

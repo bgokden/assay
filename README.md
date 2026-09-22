@@ -193,6 +193,11 @@ uv run pytest                                             # unit tests (download
 uv run python -m assay.server --model Berk/assay-4b       # POST /v1/decide on :8000
 ```
 
+The server also accepts the System One style payload that other open decision models use
+(`/v1/systemone`, questions typed `choice`/`noul`/`score` with options under `criteria`), so a
+client written for that interface works unchanged; `POST /v1/decide_graph` walks a decision
+tree in a single forward pass; `/health`, `/metrics` and `/v1/stats` are for operations.
+
 ```bash
 curl -s localhost:8000/v1/decide -H 'content-type: application/json' -d '{
   "state": "My card was charged twice for order A-104.",
