@@ -128,6 +128,30 @@ decoders on classification-shaped tasks, well below them on knowledge and rules 
 on the transfer suite). Measured on holdout ECE and cost per decision like every tier.
 Drop if: a cross-encoder with the same backbone beats it by more than 5 points on the holdout.
 
+#### Backbone swap: a decoder's features instead of an encoder (tried 2026-09-22, dropped)
+
+Hypothesis: the tier's weak families (MMLU 0.25, SciQ, TruthfulQA) are knowledge the 149M
+retrieval encoder does not have, so feed the reader a small decoder's hidden states instead.
+Qwen3-0.6B-Base cut at 16 of 28 layers, last-token pooling, LoRA r=16, same reader, 2 epochs.
+
+| model | seen (dev) | unseen (holdout) | transfer-v4 |
+|---|---|---|---|
+| Qwen3-0.6B-Base readout, untrained | - | 0.586 | 0.527 |
+| compiled+late on its layer-16 features | 0.594 / 0.494 / 0.014 | 0.553 / 0.548 / 0.075 | 0.548 / 0.586 / 0.109 |
+| compiled+late on gte-modernbert-base | 0.668 / 0.442 / 0.037 | 0.606 / 0.494 / 0.061 | 0.542 / 0.572 / 0.095 |
+| **assay-0.6b** decoder, same data (LoRA readout) | 0.705 / 0.391 / 0.030 | 0.704 / 0.397 / 0.037 | 0.636 / 0.499 / 0.124 |
+
+Knowledge moved a little (MMLU 0.250 -> 0.293) but everything the tier was good at regressed
+(medical_questions_pairs 0.740 -> 0.505, SciQ 0.759 -> 0.698, scitail 0.765 -> 0.630), and the
+same 0.6B weights inside the decoder answer those at 0.835 / 0.770. The features exist; this
+reader cannot reach them. Causes, in order of suspicion: last-token pooling of a causal
+mid-layer state is a poor summary, rank-16 LoRA on half the layers adapts far less than
+gte-base's full fine-tune, and pairwise tasks need option-to-option comparison the reader
+lacks. Dropped: gte-base stays the tier's backbone at a quarter of the cost, and the 0.6B
+decoder (`assay-0.6b`, holdout 0.704) is the better small model if a decoder is affordable.
+Revisit only with mean-pooling over the last k tokens, full fine-tuning of the top layers
+and the joint reader.
+
 ### 4. Cross-encoder tier, only if 3 loses badly (built as the comparison; not published)
 
 Entailment-style encoder: `[state + question] [SEP] [option description]`, one pass per

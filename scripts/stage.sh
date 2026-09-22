@@ -7,11 +7,17 @@
 mkdir -p runs/night
 LOG=runs/night/queue.log
 STALL_SECONDS="${STALL_SECONDS:-900}"
+GPU_LOCK="${GPU_LOCK:-/tmp/assay-gpu.lock}"
 log() { echo "[$(date '+%F %T')] $*" | tee -a "$LOG"; }
+
+# One GPU job at a time across queues: a stage holds an exclusive flock for its whole run,
+# so a queue that reaches its next stage waits instead of crashing into a running job.
+with_gpu() { flock "$GPU_LOCK" "$@"; }
 
 run_watched() {  # logfile, cmd... ; returns the command's exit code, 124 when killed as stalled
   local logfile="$1"; shift
-  setsid "$@" >> "$logfile" 2>&1 &   # own process group, so a stall kill reaches the whole tree
+  touch "$GPU_LOCK"
+  setsid flock "$GPU_LOCK" "$@" >> "$logfile" 2>&1 &  # own process group; holds the GPU lock
   local pid=$!
   while kill -0 "$pid" 2>/dev/null; do
     sleep 30
