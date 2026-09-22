@@ -89,12 +89,15 @@ See `docs/research.md` for the literature and the community landscape this build
 ## Results
 
 Models: [Berk/assay-27b](https://huggingface.co/Berk/assay-27b) (adapter + evidence head over
-a 4-bit Qwen3.8-27B), [Berk/assay-4b](https://huggingface.co/Berk/assay-4b) and
-[Berk/assay-1.7b](https://huggingface.co/Berk/assay-1.7b) (merged weights, adapter, evidence
+a 4-bit Qwen3.8-27B), [Berk/assay-4b](https://huggingface.co/Berk/assay-4b),
+[Berk/assay-1.7b](https://huggingface.co/Berk/assay-1.7b) and
+[Berk/assay-0.6b](https://huggingface.co/Berk/assay-0.6b) (merged weights, adapter, evidence
 head and model card in each repository). Cells are accuracy / Brier / ECE, single seed.
 
 | model | seen tasks (dev, n=5513) | unseen tasks (holdout, n=2020) | kev transfer-v4 (n=764) |
 |---|---|---|---|
+| Qwen3-0.6B-Base, untrained | - | 0.586 / 0.498 / 0.072 | 0.527 / 0.541 / 0.109 |
+| **assay-0.6b** (data v4) | 0.705 / 0.391 / 0.030 | 0.704 / 0.397 / 0.037 | 0.636 / 0.499 / 0.124 |
 | Qwen3-1.7B-Base, untrained | 0.542 / 0.551 / 0.077 | 0.623 / 0.456 / 0.070 | 0.588 / 0.495 / 0.116 |
 | **assay-1.7b** | 0.740 / 0.355 / 0.035 | 0.752 / 0.334 / 0.024 | 0.670 / 0.436 / 0.115 |
 | Qwen3-4B-Base, untrained | 0.640 / 0.452 / 0.032 | 0.740 / 0.356 / 0.042 | 0.707 / 0.383 / 0.051 |
@@ -167,11 +170,20 @@ It sits at the level of the untrained 1.7B decoder on unseen tasks: strong on si
 classification (topic, sentiment, spam at 0.9+), near chance on knowledge (MMLU 0.25) and
 multi-step reasoning. Its point is cost: on a CPU with 8 threads, encoding a state takes
 30 ms, compiling six questions 90 ms once, and then deciding all six takes 3 ms
-(`scripts/bench_compiled.py`). Without the late-interaction term the same model scores 0.561 on
-unseen tasks and 0.423 on the transfer suite; the cross-encoder is the ceiling for this
-backbone and costs one encoder pass per option. Published as
-[Berk/assay-compiled-base](https://huggingface.co/Berk/assay-compiled-base); trained with
-`assay.train_compiled`, details and the dropped variants in `docs/roadmap.md`.
+(`scripts/bench_compiled.py`). Published as
+[Berk/assay-compiled-base](https://huggingface.co/Berk/assay-compiled-base).
+
+That 0.606 is where the tier stopped, and the attempts to move it are worth reporting as
+negative results: a deeper reader whose option tokens self-attend and cross-attend into the
+state reached 0.576; 1.2M teacher-labelled examples cost 4 points mixed into the task data and
+6 points as a two-stage pretrain; a 0.6B decoder's hidden states in place of the encoder gave
+0.553. Meanwhile a cross-encoder with full joint attention on the same backbone reaches only
+0.619, so reader capacity was never the constraint. The clearest measurement: the same 0.6B
+weights score **0.704** on unseen tasks when the answer is read from their own next-token
+distribution and **0.553** when they are a feature extractor under a learned reader. For this
+family of tasks, reading the answer out of a language model beats learning a head on top of
+one; `assay-0.6b` is the better small model, and the encoder tier is the CPU option. Details
+and per-family numbers in `docs/roadmap.md`.
 
 ## Install and run
 
