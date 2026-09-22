@@ -189,6 +189,29 @@ family of tasks, reading the answer out of a language model beats learning a hea
 one; `assay-0.6b` is the better small model, and the encoder tier is the CPU option. Details
 and per-family numbers in `docs/roadmap.md`.
 
+## Agents
+
+An agent is a decision graph plus what its outcomes stand for. Deciding is one forward pass --
+every question in the tree at once -- and the walk is then pure logic; the agent decides and
+your code acts, so nothing here sends an email or issues a refund.
+
+```bash
+uv run python examples/run_agent.py --model Berk/assay-0.6b          # with handlers, in Python
+uv run python -m assay.server --model Berk/assay-0.6b --agents examples/agents
+curl -s localhost:8000/v1/agents/support-triage/run -H 'content-type: application/json' \
+  -d '{"state": {"message": "The dashboard is down for everyone."}}'
+```
+
+```json
+{"outcome": "page_oncall", "action": "page", "arguments": {"rota": "infrastructure"},
+ "path_probability": 0.932, "usage": {"questions": 5, "forward_passes": 1}}
+```
+
+Nodes can require a minimum probability, a minimum evidence score, or the fitted conformal act
+threshold, and route to a fallback when the model does not clear it -- "not sure" is a route,
+not an exception. [docs/agents.md](docs/agents.md) is the guide;
+[docs/serving.md](docs/serving.md) covers deployment, tuning, metrics and the full API.
+
 ## Install and run
 
 ```bash
@@ -204,6 +227,9 @@ request, so the readout and the evidence head both come from one forward pass, a
 RadixAttention reuses a state prefix across separate questions. Check a deployment with
 `verify_against_local` before trusting it - SGLang's response layout is not pinned by a
 published schema.
+
+[docs/serving.md](docs/serving.md) is the deployment guide: options, batch tuning, health and
+Prometheus metrics, authentication, a systemd unit, a Dockerfile, and the full API reference.
 
 The server also accepts the System One style payload that other open decision models use
 (`/v1/systemone`, questions typed `choice`/`noul`/`score` with options under `criteria`), so a

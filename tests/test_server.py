@@ -313,3 +313,50 @@ def test_api_key_is_enforced_when_configured():
     assert guarded.get("/health").status_code == 200  # probes stay open
     ok = guarded.post("/v1/decide", json=body, headers={"Authorization": "Bearer secret"})
     assert ok.status_code == 200
+
+
+AGENT = {
+    "name": "support-triage",
+    "description": "Route a ticket and say what to do",
+    "graph": GRAPH,
+    "actions": {
+        "refund": {"action": "issue_refund", "arguments": {"queue": "billing"}},
+        "page_oncall": "page",
+        "human_review": {"action": "escalate"},
+    },
+}
+
+
+def test_agents_are_registered_listed_and_run(client):
+    created = client.post("/v1/agents", json=AGENT)
+    assert created.status_code == 200, created.text
+    assert created.json()["questions"] == 3
+
+    listed = client.get("/v1/agents").json()["agents"]
+    assert [a["name"] for a in listed] == ["support-triage"]
+    assert client.get("/v1/agents/support-triage").json()["nodes"] == len(GRAPH["nodes"])
+
+    r = client.post(
+        "/v1/agents/support-triage/run",
+        json={"state": {"message": "I was charged twice for order A-104, please refund."}},
+    )
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["agent"] == "support-triage"
+    assert out["outcome"] in {"refund", "reply", "page_oncall", "human_review"}
+    assert out["usage"]["forward_passes"] == 1 and out["usage"]["questions"] == 3
+    if out["outcome"] in AGENT["actions"]:
+        assert out["action"]  # the outcome carries the action the client should perform
+    assert out["path"] and out["path"][0]["node"] == "triage"
+
+    assert client.delete("/v1/agents/support-triage").json() == {"deleted": "support-triage"}
+    assert client.get("/v1/agents/support-triage").status_code == 404
+    assert client.post("/v1/agents/support-triage/run", json={"state": "x"}).status_code == 404
+
+
+def test_a_bad_agent_specification_is_rejected(client):
+    bad = {**AGENT, "actions": {"nowhere": {"action": "x"}}}
+    r = client.post("/v1/agents", json=bad)
+    assert r.status_code == 422
+    assert "never reaches" in r.json()["detail"]
+    assert client.post("/v1/agents", json={"name": "x"}).status_code == 422

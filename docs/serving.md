@@ -1,0 +1,209 @@
+# Serving Assay
+
+One process holds one model and answers decisions over HTTP. There is no decode loop -- every
+request is a single prefill -- so the server is simple to run and its capacity is easy to
+reason about: throughput is questions per second, not tokens per second.
+
+```bash
+uv run python -m assay.server --model Berk/assay-4b --port 8000
+curl -s localhost:8000/health
+```
+
+`--model` takes a Hub id, a run directory from `assay.pipeline`, or `base:<hf id>` for an
+untrained readout. The tier is read from the saved configuration, so the decoder, encoder and
+encoder-decoder models are all served the same way.
+
+## Choosing a model
+
+| you want | use | unseen-task accuracy | one question |
+|---|---|---|---|
+| the best answers | [assay-27b](https://huggingface.co/Berk/assay-27b) | 0.842 | 110 ms |
+| the usual choice | [assay-4b](https://huggingface.co/Berk/assay-4b) | 0.803 | 23 ms |
+| cheap and quick | [assay-1.7b](https://huggingface.co/Berk/assay-1.7b) | 0.752 | 18 ms |
+| the small end | [assay-0.6b](https://huggingface.co/Berk/assay-0.6b) | 0.704 | 17 ms |
+| no GPU at all | [assay-compiled-base](https://huggingface.co/Berk/assay-compiled-base) | 0.606 | 29 ms (CPU) |
+
+Full numbers, including abstention rates, are in [models.md](models.md). Twenty-four questions
+over one state cost about what one question costs on the decoder tiers (57 ms on the 4B), so
+ask everything you need in one request rather than splitting it.
+
+## Options
+
+```
+--model            a Hub id, a run directory, or base:<hf id>            (required)
+--host --port      where to listen                        (127.0.0.1:8000)
+--device           where the small tiers load; the decoder tier places itself
+--api-key          require this bearer token on /v1/  (default $ASSAY_API_KEY, otherwise open)
+--agents           a directory of agent specifications to register at startup
+--max-state-tokens truncate a state to this many tokens                     (4096)
+--max-batch-size   requests per forward pass                                  (16)
+--max-batch-tokens token budget per forward pass                           (16384)
+--batch-wait-ms    how long a batch waits to fill                            (5.0)
+--max-queue        queued requests before the server answers 503              (256)
+--workers-per-device  uvicorn workers; one GPU serves one                       (1)
+```
+
+### Tuning the batch
+
+Requests that arrive together are answered in one forward pass. `--batch-wait-ms` is the only
+latency you add deliberately: a request waits up to that long for company. Raise it (20-50 ms)
+when throughput matters more than a single request's latency, lower it to 0 when it does not.
+`--max-batch-tokens` protects memory -- a batch stops growing when the packed tokens would
+exceed it -- and `--max-batch-size` bounds how many requests share a pass.
+
+When the queue is longer than `--max-queue` the server answers **503** with `Retry-After: 1`
+instead of growing an unbounded backlog. Out of memory is also a 503, with `Retry-After: 5`.
+Both are signals to add a replica, not to retry harder.
+
+### Scaling
+
+One process, one model, one GPU. Run one container per GPU behind any load balancer; there is
+no shared state between requests, so round-robin is enough. Sessions, affinity and sticky
+routing are not needed. For CPU serving of the small tiers, give each process a few cores and
+run several.
+
+## Health, metrics and statistics
+
+- `GET /health` -- `{"status": "ok", "model": ..., "queue_depth": n, "conformal": true}`.
+  Use it as both liveness and readiness; it stays open when an API key is configured.
+- `GET /metrics` -- Prometheus text: `assay_requests_total`, `assay_batches_total`,
+  `assay_rejected_total`, `assay_queue_depth`, `assay_batch_size_mean`, `assay_latency_ms`
+  with p50/p95/p99 quantiles.
+- `GET /v1/stats` -- the same numbers as JSON, for a quick look without a scraper.
+
+A healthy deployment has `assay_batch_size_mean` above 1 under load (requests are sharing
+passes) and `assay_rejected_total` flat (the queue is not saturating).
+
+## Authentication
+
+`--api-key` or `ASSAY_API_KEY` requires `Authorization: Bearer <key>` on every `/v1/` route.
+`/health` and `/metrics` stay open so probes and scrapers keep working. The server does no
+rate limiting, no tenancy and no audit logging: put it behind your own gateway if you need
+those.
+
+## systemd
+
+```ini
+[Unit]
+Description=Assay decision server
+After=network-online.target
+
+[Service]
+WorkingDirectory=/srv/assay
+Environment=ASSAY_API_KEY=change-me
+ExecStart=/usr/bin/env uv run python -m assay.server \
+    --model Berk/assay-4b --host 0.0.0.0 --port 8000 --agents /srv/assay/agents
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+## Docker
+
+```dockerfile
+FROM nvidia/cuda:12.6.0-runtime-ubuntu24.04
+RUN apt-get update && apt-get install -y python3 git && apt-get clean
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+WORKDIR /srv/assay
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev
+COPY assay ./assay
+ENV HF_HOME=/models
+EXPOSE 8000
+CMD ["uv", "run", "python", "-m", "assay.server", "--model", "Berk/assay-4b", "--host", "0.0.0.0"]
+```
+
+Mount a volume at `/models` so the weights are downloaded once, and pass `--gpus all`.
+
+## Serving through SGLang
+
+`assay.backends.sglang` runs the decoder tier on an SGLang deployment instead of local
+transformers: one `/generate` call returns both the option-label logprobs and the hidden state,
+so the readout and the evidence head come from the same forward pass, and RadixAttention reuses
+a state prefix across questions. Check a deployment with `verify_against_local` before trusting
+it -- SGLang's response layout is not pinned by a published schema.
+
+## API
+
+Every route below is under `/v1` and takes JSON. Answers carry `probabilities`, `confidence`
+(0 for a uniform distribution, 1 for a one-hot) and `evidence` (whether the state contains what
+is needed to answer). When the model directory holds `conformal.json`, they also carry `act`
+(the top answer clears the fitted error rate) and `set` (the options that cannot be ruled out).
+
+### POST /v1/decide
+
+```json
+{"state": "My card was charged twice for order A-104.",
+ "questions": {
+   "refund": {"type": "bool", "instructions": "Does the customer ask for money back?"},
+   "team": {"type": "choice", "instructions": "Which team should handle this?",
+            "options": {"billing": "Charges and refunds", "technical": "Bugs and outages"}},
+   "anger": {"type": "score", "instructions": "How angry is the customer?",
+             "levels": ["calm", "annoyed", "furious"]}}}
+```
+
+```json
+{"model": "assay-4b",
+ "answers": {
+   "refund": {"type": "bool", "p_true": 0.97, "probabilities": {"yes": 0.97, "no": 0.03},
+              "confidence": 0.94, "evidence": 0.99, "act": true, "set": ["yes"]},
+   "team": {"type": "choice", "choice": "billing", "probabilities": {}},
+   "anger": {"type": "score", "score": 1.2, "level": 1, "legend": {"0": "calm"}}},
+ "usage": {"input_tokens": 61}, "latency_ms": 24.8}
+```
+
+Up to 255 questions per request. A malformed question is a 422.
+
+### POST /v1/systemone and /v1/systemone/batch
+
+The request shape other open decision models use: options under `criteria`, booleans typed
+`noul`. The response groups answers by type -- `choices[name].choice`, `nouls[name].noul`,
+`scores[name].score` -- so a client written for that interface works unchanged. The batch form
+takes `{"requests": [...]}`, at most 128 requests and 512 decisions in one submission, and
+answers them in as few passes as the budget allows.
+
+### POST /v1/decide_graph
+
+```json
+{"state": {"message": "everything is down"},
+ "graph": {"start": "triage",
+           "nodes": {"triage": {"question": {"type": "bool", "instructions": "An outage?"},
+                                "edges": {"yes": "page"},
+                                "min_probability": 0.45, "fallback": "human"},
+                     "page": {"outcome": "page_oncall"},
+                     "human": {"outcome": "human_review"}}}}
+```
+
+Answers every question in the graph in one forward pass and walks it, returning `outcome`,
+`path`, `path_probability` and every answer. Cycles and undefined targets are a 422. See
+[agents.md](agents.md).
+
+### Agents
+
+- `POST /v1/agents` registers an agent specification for this process.
+- `GET /v1/agents`, `GET /v1/agents/<name>` list and describe them.
+- `POST /v1/agents/<name>/run` takes `{"state": ...}` and returns the outcome, the `action` it
+  stands for and that action's `arguments`.
+- `DELETE /v1/agents/<name>` removes one.
+
+The server never performs an action; it says what should happen and the caller does it. Agents
+that must survive a restart belong in files loaded with `--agents`. See [agents.md](agents.md).
+
+### GET /v1/models
+
+The model this process serves and the backbone it was trained from.
+
+## Scoring a file instead of serving
+
+For bulk work there is no reason to go through HTTP:
+
+```bash
+uv run python -m assay.apply --model Berk/assay-4b --questions questions.json \
+    --states tickets.jsonl --out answers.jsonl
+```
+
+`questions.json` is the question set in the request shape, `tickets.jsonl` is one state per
+line (a bare value, or a record with a `state` field), and each output line carries the state's
+identifier and its answers.

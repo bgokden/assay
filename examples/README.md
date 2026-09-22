@@ -1,7 +1,7 @@
 # Examples
 
-Four things you can run: ask a published model, walk a decision tree, call a server, and
-train your own model from your own data with one configuration file.
+Five things you can run: ask a published model, walk a decision tree, build an agent, call a
+server, and train your own model from your own data with one configuration file.
 
 Everything here uses the same record and request shapes, so a model trained by the pipeline
 is served and queried exactly like the published ones.
@@ -30,6 +30,24 @@ python examples/decision_graph.py --model Berk/assay-0.6b
 A triage graph: route the ticket, then ask the question that branch needs. Every question in
 the graph is answered in one forward pass because the branches are isolated from each other,
 and a node that is not confident enough falls back to human review instead of guessing.
+
+## Build an agent
+
+```bash
+python examples/run_agent.py --model Berk/assay-0.6b
+```
+
+`agents/support_triage.json` is a decision graph whose outcomes name actions (refund, page,
+reset_password, escalate). The script supplies the handlers; the library only decides. The
+same file can be served:
+
+```bash
+python -m assay.server --model Berk/assay-0.6b --agents examples/agents --port 8000
+curl -s localhost:8000/v1/agents/support-triage/run -H 'content-type: application/json' \
+  -d '{"state": {"message": "I was charged twice, please refund."}}'
+```
+
+[docs/agents.md](../docs/agents.md) explains the specification, the guards and the loop.
 
 ## Call a server
 

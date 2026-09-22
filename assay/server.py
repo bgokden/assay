@@ -13,6 +13,11 @@ POST /v1/systemone accepts the System One style payload other open decision mode
 (questions typed choice/noul/score with options under `criteria`) and groups the answers by
 type, so clients written for that interface work unchanged.
 
+POST /v1/agents registers an agent (a decision graph plus what its outcomes stand for),
+GET /v1/agents lists them, and POST /v1/agents/<name>/run decides one case: the reply carries
+the outcome, the action to take and its arguments. The server never performs the action. Agent
+specifications can also be loaded from a directory at startup with --agents. See assay.agent.
+
 POST /v1/decide_graph walks a decision tree: a start node, question nodes whose edges are
 keyed by the chosen option, and outcome nodes. Every question in the graph is answered in one
 forward pass (branches are isolated over the shared state), so a whole tree costs what one
@@ -44,6 +49,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from assay.agent import MAX_AGENTS, Agent, load_agents
 from assay.batching import Batcher, QueueFull
 from assay.conformal import decorate, load_conformal
 from assay.graph import Graph, walk
@@ -75,6 +81,22 @@ class SystemOneRequest(BaseModel):
     model: str | None = None
 
 
+class AgentRequest(BaseModel):
+    """Run a registered agent over one state."""
+
+    state: Any
+
+
+class AgentSpec(BaseModel):
+    """An agent specification: a decision graph and what its outcomes stand for."""
+
+    name: str
+    graph: dict[str, Any]
+    actions: dict[str, Any] | None = None
+    description: str | None = None
+    max_steps: int | None = None
+
+
 class BatchRequest(BaseModel):
     """Several independent states in one submission, each with its own questions."""
 
@@ -89,9 +111,11 @@ def create_app(
     conformal: dict[str, Any] | None = None,
     batcher: Batcher | None = None,
     api_key: str | None = None,
+    agents: dict[str, Agent] | None = None,
 ) -> FastAPI:
     batcher = batcher or Batcher(model, max_state_tokens=max_state_tokens)
     runner = batcher.runner
+    registry: dict[str, Agent] = dict(agents or {})
 
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -233,6 +257,67 @@ def create_app(
             "latency_ms": round(elapsed, 1),
         }
 
+    @app.get("/v1/agents")
+    def list_agents() -> dict[str, Any]:
+        return {"agents": [a.to_dict() for a in registry.values()]}
+
+    @app.get("/v1/agents/{name}")
+    def show_agent(name: str) -> dict[str, Any]:
+        if name not in registry:
+            raise HTTPException(status_code=404, detail=f"no agent called {name!r}")
+        return registry[name].to_dict()
+
+    @app.post("/v1/agents")
+    def create_agent(spec: AgentSpec) -> dict[str, Any]:
+        """Register an agent for this process. Specifications live in files when they should
+        outlive a restart; this is for building one and trying it."""
+        if spec.name not in registry and len(registry) >= MAX_AGENTS:
+            raise HTTPException(status_code=422, detail=f"at most {MAX_AGENTS} agents")
+        try:
+            agent = Agent.from_dict({k: v for k, v in spec.model_dump().items() if v is not None})
+        except (KeyError, ValueError, TypeError) as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        registry[agent.name] = agent
+        return agent.to_dict()
+
+    @app.delete("/v1/agents/{name}")
+    def delete_agent(name: str) -> dict[str, Any]:
+        if name not in registry:
+            raise HTTPException(status_code=404, detail=f"no agent called {name!r}")
+        del registry[name]
+        return {"deleted": name}
+
+    @app.post("/v1/agents/{name}/run")
+    async def run_agent(name: str, req: AgentRequest) -> dict[str, Any]:
+        """One decision: every question of the agent's graph in one forward pass, then the
+        outcome and the action it stands for. The server does not perform the action -- the
+        client does, and calls again with the new state when the agent has more steps."""
+        if name not in registry:
+            raise HTTPException(status_code=404, detail=f"no agent called {name!r}")
+        agent = registry[name]
+        t0 = time.perf_counter()
+        questions = agent.questions()
+        out, tokens = await run(req.state, questions)
+        answers = {n: model_answer(out[n], q) for n, q in questions.items()}
+        try:
+            decision = agent.route(answers, conformal)
+        except (KeyError, ValueError) as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        elapsed = (time.perf_counter() - t0) * 1000.0
+        batcher.metrics.observe_request(elapsed)
+        return {
+            "model": model_name,
+            "agent": agent.name,
+            **decision.to_dict(),
+            "answers": out,
+            "usage": {
+                "input_tokens": tokens,
+                "questions": len(questions),
+                "forward_passes": runner.passes([list(questions.values())]),
+            },
+            "latency_ms": round(elapsed, 1),
+        }
+
     @app.post("/v1/decide_graph")
     async def decide_graph(req: GraphRequest) -> dict[str, Any]:
         t0 = time.perf_counter()
@@ -312,9 +397,16 @@ def main() -> None:
     ap.add_argument(
         "--workers-per-device", type=int, default=1, help="uvicorn workers; one GPU serves one"
     )
+    ap.add_argument(
+        "--agents",
+        help="a directory of agent specifications (or one file) to register at startup",
+    )
     args = ap.parse_args()
     from assay.evaluate import load_model
 
+    agents = load_agents(args.agents) if args.agents else {}
+    if agents:
+        print(f"agents: {', '.join(sorted(agents))}")
     model = load_model(args.model, device=args.device)
     model.eval()
     name = os.path.basename(args.model.rstrip("/")) or args.model
@@ -332,6 +424,7 @@ def main() -> None:
         args.max_state_tokens,
         conformal=load_conformal(args.model),
         batcher=batcher,
+        agents=agents,
         api_key=args.api_key,
     )
     uvicorn.run(app, host=args.host, port=args.port, workers=args.workers_per_device)
