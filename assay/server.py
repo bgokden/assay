@@ -154,7 +154,14 @@ def create_app(
 
     @app.get("/v1/models")
     def models() -> dict[str, Any]:
-        base = getattr(model, "base_model_id", None) or getattr(model, "model_id", None)
+        base = next(
+            (
+                getattr(model, attr)
+                for attr in ("base_model_id", "model_id", "encoder_id")
+                if getattr(model, attr, None)
+            ),
+            None,
+        )
         return {"models": [{"id": model_name, "base": base}]}
 
     @app.get("/health")
