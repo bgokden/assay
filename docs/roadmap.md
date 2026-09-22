@@ -67,7 +67,33 @@ and the teacher is about to exist. Cost: a few hours of 27B inference.
 Drop if: a 4B retrained on it does not gain on the holdout (then the small models are
 capacity-limited, not data-limited).
 
-### 3. Compiled-function tier (new architecture)
+### 3. Compiled-function tier (new architecture; first results 2026-09-22)
+
+Built as `assay.compiled` (trainer `assay.train_compiled`, encoder `gte-modernbert-base`,
+data v4 plus the 40k teacher-labelled generic set). Cells: accuracy / Brier / ECE after
+scaling.
+
+| encoder tier | seen (dev) | unseen (holdout) | transfer-v4 |
+|---|---|---|---|
+| zero-shot cosine, untrained | 0.417 / 0.665 / 0.116 | 0.541 / 0.563 / 0.067 | 0.514 / 0.585 / 0.075 |
+| compiled, 1 epoch, lr 2e-5, options carry the instruction | 0.591 / 0.490 / 0.029 | 0.545 / 0.538 / 0.033 | 0.423 / 0.621 / 0.086 |
+| cross-encoder (one pass per option) | 0.670 / 0.422 / 0.027 | 0.619 / 0.479 / 0.025 | 0.527 / 0.531 / 0.061 |
+
+The first compiled run underfits (train loss 0.86 against 0.4-0.6 for the decoders, still
+falling when the schedule ended) and had a design flaw: every option text began with the
+instruction, so the two options of a bool question were near-identical vectors (bool tasks
+were its weakest family). Single-text classification is strong on both encoders (spam,
+sentiment, topic at 0.9+), anything that relates two spans (NLI, QA, knowledge) is near
+chance for the compiled reader and mediocre for the cross-encoder. Both sit at the level of
+the *untrained* 1.7B decoder on unseen tasks (0.623), at a fraction of its cost: on CPU with
+8 threads the compiled model encodes a state in 30 ms, compiles six questions once in
+135 ms, and then decides all six in 2 ms.
+
+Queued: the compiled model with content-only options, 3 epochs at lr 5e-5 and 8 slots; a
+"conditioned" middle tier (instruction and state in one encoder pass, options compiled and
+scored by content: one pass per question rather than per option); ModernBERT-large.
+Decision rule unchanged: the compiled tier stays only if it comes within 5 points of the
+cross-encoder on the holdout.
 
 The question is compiled once into parameters; the state is encoded once; a decision is a
 small computation between the two. One paraphrase-class encoder produces token-level state
