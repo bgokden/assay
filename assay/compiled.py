@@ -53,8 +53,9 @@ class Options:
 
     vectors: torch.Tensor  # (B, K, d) mean-pooled option encodings
     valid: torch.Tensor  # (B, K) bool
-    tokens: torch.Tensor | None = None  # (B, K, T, d) token encodings, for late interaction
-    token_mask: torch.Tensor | None = None  # (B, K, T)
+    counts: list[int]  # options per question
+    tokens: torch.Tensor | None = None  # (sum K, T, d) token encodings, for late interaction
+    token_mask: torch.Tensor | None = None  # (sum K, T)
 
 
 def mean_pool(hidden: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -205,30 +206,33 @@ class CompiledModel(nn.Module):
         b, k_max = len(questions), max(counts)
         vectors = opt_vec.new_zeros((b, k_max, self.d))
         valid = torch.zeros((b, k_max), dtype=torch.bool, device=opt_vec.device)
-        late = self.late_scale is not None
-        padded_tokens = tokens.new_zeros((b, k_max) + tokens.shape[1:]) if late else None
-        padded_mask = token_mask.new_zeros((b, k_max, token_mask.shape[1])) if late else None
         start = 0
         for i, k in enumerate(counts):
             vectors[i, :k] = opt_vec[start : start + k]
             valid[i, :k] = True
-            if late:
-                padded_tokens[i, :k] = tokens[start : start + k]
-                padded_mask[i, :k] = token_mask[start : start + k]
             start += k
-        return Options(vectors, valid, padded_tokens, padded_mask)
+        if self.late_scale is None:
+            return Options(vectors, valid, counts)
+        return Options(vectors, valid, counts, tokens, token_mask)
 
     def late_interaction(
         self, hidden: torch.Tensor, mask: torch.Tensor, options: Options
     ) -> torch.Tensor:
-        """(B, K) mean over option tokens of the best cosine match among state tokens."""
+        """(B, K) mean over option tokens of the best cosine match among state tokens. Works
+        on each question's own options, so memory follows the number of options in the
+        batch rather than batch size times the widest question."""
         h = F.normalize(hidden, dim=-1)
-        o = F.normalize(options.tokens, dim=-1)
-        sim = torch.einsum("bktd,bld->bktl", o, h.to(o.dtype))
-        sim = sim.masked_fill(~mask.bool()[:, None, None, :], -1.0)
-        best = sim.max(-1).values  # (B, K, T)
-        tm = options.token_mask.to(best.dtype)
-        return (best * tm).sum(-1) / tm.sum(-1).clamp(min=1.0)
+        o = F.normalize(options.tokens, dim=-1).to(h.dtype)
+        out = h.new_zeros(options.valid.shape)
+        start = 0
+        for i, k in enumerate(options.counts):
+            sim = torch.einsum("ktd,ld->ktl", o[start : start + k], h[i])  # (k, T, L)
+            sim = sim.masked_fill(~mask[i].bool()[None, None, :], -1.0)
+            best = sim.max(-1).values  # (k, T)
+            tm = options.token_mask[start : start + k].to(best.dtype)
+            out[i, :k] = (best * tm).sum(-1) / tm.sum(-1).clamp(min=1.0)
+            start += k
+        return out
 
     # --- decision --------------------------------------------------------------------------
 
