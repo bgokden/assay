@@ -157,7 +157,9 @@ few points of error, less for choice than for bool; that is the number to quote,
 report prints it for every split. Score questions get no act threshold at alpha 0.1 because
 exact-level accuracy is the wrong error for ordinal answers (adjacent levels count as wrong);
 their prediction sets work (coverage 0.84-1.0, about two levels wide). The 1.7B acts less
-often (65% / 53% on unseen tasks) at similar error; the encoder tiers act rarely (10-34%).
+often (65% / 53% on unseen tasks) at similar error, the 27B more often (89% / 84% at 11.2% /
+7.4%); the encoder tiers act rarely (10-34%). The published 1.7B, 4B and 27B now carry
+`conformal.json` and an abstention section in their model cards.
 
 The evidence head says "the state does not say"; this says "the model does not know". Costs
 nothing at inference.
