@@ -139,11 +139,28 @@ logit plus a bilinear term on the option's own encoded representation, removing 
 alphabet limit and making answers permutation-equivariant by construction), and a second
 seed so differences under two points stop being noise. Same for the 1.7B.
 
-### 6. Abstention with a guarantee
+### 6. Abstention with a guarantee (built 2026-09-22)
 
-A conformal layer over every tier: per-question-type thresholds fitted on the calibration
-split so that "act" sets have a stated error rate. The evidence head says "the state does not
-say"; this says "the model does not know". Costs nothing at inference.
+`assay.conformal`, fitted on the saved calibration predictions (`assay.calibrate` and
+`assay.evaluate` now write per-item predictions next to their reports). Two thresholds per
+question type: a split-conformal prediction-set threshold (coverage >= 1 - alpha) and an act
+threshold on the top probability chosen by one-sided binomial tests over a grid with a
+Bonferroni correction (acted-on error <= alpha at confidence 1 - delta). The server returns
+`act` and `set` per answer when `conformal.json` is in the model directory.
+
+At alpha 0.1, delta 0.05 on the 4B (seed 1): calibration split coverage 0.90, acted-on error
+7.6% (bool) and 8.0% (choice) with act rates 90% and 73%, as the construction promises. On
+unseen tasks the same thresholds give coverage 0.83 (bool) / 0.93 (choice) and acted-on error
+10.8% / 7.1% at act rates 77% / 72%; on the transfer suite 14.6% / 11.3% at 90% / 74%. The
+guarantee is for the calibration distribution and the shift to unseen task families costs a
+few points of error, less for choice than for bool; that is the number to quote, and the
+report prints it for every split. Score questions get no act threshold at alpha 0.1 because
+exact-level accuracy is the wrong error for ordinal answers (adjacent levels count as wrong);
+their prediction sets work (coverage 0.84-1.0, about two levels wide). The 1.7B acts less
+often (65% / 53% on unseen tasks) at similar error; the encoder tiers act rarely (10-34%).
+
+The evidence head says "the state does not say"; this says "the model does not know". Costs
+nothing at inference.
 
 ### Supporting work
 
