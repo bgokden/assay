@@ -21,8 +21,9 @@ from assay.family import short_table
 from assay.model import CONFIG_FILE, HEAD_FILE, AssayModel
 
 
-def family_section() -> str:
-    """The card's family table, generated from the same source as docs/models.md."""
+def family_section(repo: str = "<user>/<model>") -> str:
+    """The card's family table and the shared prose, generated from the same source as
+    docs/models.md so a new model updates every card at once."""
     return f"""## The family
 
 {short_table()}
@@ -33,11 +34,20 @@ per-tier abstention and latency are in
 
 ## Serving
 
-`assay.server` exposes `POST /v1/decide`, the System One style `POST /v1/systemone`
-(questions typed `choice`/`noul`/`score` with options under `criteria`, plus a batch
-endpoint), and `POST /v1/decide_graph`, which walks a decision tree in a single forward pass.
-Requests arriving together are answered in one pass; `/health` and `/metrics` are for
+```bash
+python -m assay.server --model {repo} --port 8000
+```
+
+`POST /v1/decide` is the native shape; `POST /v1/systemone` and `/v1/systemone/batch` accept
+the shape other open decision models use (`criteria` options, `noul` booleans); `POST
+/v1/decide_graph` walks a decision tree in one forward pass; `POST /v1/agents` registers an
+agent -- a graph plus the actions its outcomes stand for -- and `/v1/agents/<name>/run`
+decides a case. Requests arriving together share a pass, and `/health` and `/metrics` are for
 operations. `assay.backends.sglang` runs the same model on an SGLang deployment.
+
+Guides: [deployment and the full API](https://github.com/bgokden/assay/blob/main/docs/serving.md),
+[agents](https://github.com/bgokden/assay/blob/main/docs/agents.md),
+[runnable examples](https://github.com/bgokden/assay/tree/main/examples).
 
 ## Train one on your own data
 
@@ -216,7 +226,7 @@ bins, confident errors are answers with p >= 0.9 that are wrong.
 
 {latency}
 {abstention}
-{family_section()}## Usage
+{family_section(repo)}## Usage
 
 ```python
 from assay import load_model

@@ -9,8 +9,13 @@ Every question is evaluated as an isolated branch over the shared state, in a si
 so a request with twenty questions costs about the same as a request with one.
 
 Five models, 149M to 27B, are on the Hub as the
-[Assay collection](https://huggingface.co/collections/Berk/assay-calibrated-typed-decisions-6ab2fcb2b7eea0b7aaf785ab),
-with their numbers side by side in [docs/models.md](docs/models.md).
+[Assay collection](https://huggingface.co/collections/Berk/assay-calibrated-typed-decisions-6ab2fcb2b7eea0b7aaf785ab).
+
+**Documentation:** [models](docs/models.md) (every published model side by side) |
+[serving](docs/serving.md) (deployment, tuning, metrics, the full API) |
+[agents](docs/agents.md) (decision graphs and the actions they take) |
+[examples](examples/) (runnable) | [datasets](docs/datasets.md) |
+[roadmap](docs/roadmap.md) (what was tried, including what failed)
 
 
 ```python

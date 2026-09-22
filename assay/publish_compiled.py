@@ -135,7 +135,7 @@ multi-step reasoning are near chance. See the repository's `docs/roadmap.md` for
 comparison against the other tiers.
 
 {latency}
-{family_section()}
+{family_section(repo)}
 ## Usage
 
 ```python
