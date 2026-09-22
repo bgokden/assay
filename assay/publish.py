@@ -41,6 +41,15 @@ endpoint), and `POST /v1/decide_graph`, which walks a decision tree in a single 
 Requests arriving together are answered in one pass; `/health` and `/metrics` are for
 operations. `assay.backends.sglang` runs the same model on an SGLang deployment.
 
+## Train one on your own data
+
+`python -m assay.pipeline --config <your>.json` runs training, temperature calibration,
+evaluation and the conformal thresholds over your own records, and writes a directory this
+same server and publisher accept. The repository's
+[examples/](https://github.com/bgokden/assay/tree/main/examples) has a configuration per tier
+and a dataset in the record format; records written for other decision models (`criteria`
+options, `noul` booleans) load unchanged.
+
 """
 
 
