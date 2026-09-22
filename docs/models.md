@@ -1,12 +1,11 @@
 # The Assay model family
 
-Every row is the same recipe on a different backbone, evaluated on the same splits.
-Cells are accuracy / Brier / ECE after one temperature fitted on seen-task
-calibration data. Unseen tasks are eleven datasets never trained on; the transfer
-suite is `jaredpalmer/kev-suites` transfer-v4 dev, whose sources are excluded from
-training. Abstention is the fitted conformal act rate and the error among answers
-acted on, at alpha 0.1, measured on unseen tasks. Latency is one question / 24
-packed questions over one state.
+Every row is the same recipe on a different backbone, evaluated on the same splits. Cells are
+accuracy / Brier / ECE after one temperature fitted on seen-task calibration data. Unseen
+tasks are eleven datasets never trained on; the transfer suite is `jaredpalmer/kev-suites`
+transfer-v4 dev, whose sources are excluded from training. Abstention is the fitted conformal
+act rate and the error among answers acted on, at alpha 0.1, measured on unseen tasks.
+Latency is one question / 24 packed questions over one state.
 
 | model | backbone | size | seen (dev) | unseen (holdout) | transfer-v4 | abstention (unseen) | latency |
 |---|---|---|---|---|---|---|---|
@@ -16,6 +15,6 @@ packed questions over one state.
 | [assay-27b](https://huggingface.co/Berk/assay-27b) | Qwen3.8-27B (4-bit) | 27B | 0.834 / 0.243 / 0.040 | 0.842 / 0.221 / 0.040 | 0.842 / 0.229 / 0.041 | bool 88% at 11.2%, choice 84% at 7.4% | 109.5 / 750.8 ms (GPU) |
 | [assay-compiled-base](https://huggingface.co/Berk/assay-compiled-base) | gte-modernbert-base | 149M | 0.668 / 0.442 / 0.037 | 0.606 / 0.494 / 0.061 | 0.542 / 0.572 / 0.095 | bool 8% at 5.0% | 28.95 / 30.64 ms (CPU) |
 
-All weights are Apache-2.0. Training data: 55 public datasets rendered as typed
-questions plus our own generators, published at
+All weights are Apache-2.0. Training data: 55 public datasets rendered as typed questions
+plus our own generators, published at
 [Berk/assay-synthetic](https://huggingface.co/datasets/Berk/assay-synthetic).

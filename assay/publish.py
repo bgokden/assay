@@ -17,17 +17,15 @@ import shutil
 import torch
 from huggingface_hub import HfApi
 
+from assay.family import short_table
 from assay.model import CONFIG_FILE, HEAD_FILE, AssayModel
 
-FAMILY_SECTION = """## The family
 
-| model | size | unseen tasks | transfer-v4 |
-|---|---|---|---|
-| [assay-0.6b](https://huggingface.co/Berk/assay-0.6b) | 0.6B | 0.704 / 0.397 | 0.636 / 0.499 |
-| [assay-1.7b](https://huggingface.co/Berk/assay-1.7b) | 1.7B | 0.752 / 0.334 | 0.670 / 0.436 |
-| [assay-4b](https://huggingface.co/Berk/assay-4b) | 4B | 0.803 / 0.271 | 0.784 / 0.302 |
-| [assay-27b](https://huggingface.co/Berk/assay-27b) | 27B | 0.842 / 0.221 | 0.842 / 0.229 |
-| [assay-compiled-base](https://huggingface.co/Berk/assay-compiled-base) | 149M | 0.606 / 0.494 | 0.542 / 0.572 |
+def family_section() -> str:
+    """The card's family table, generated from the same source as docs/models.md."""
+    return f"""## The family
+
+{short_table()}
 
 Accuracy / Brier after temperature scaling. Same recipe, same splits, different backbones;
 per-tier abstention and latency are in
@@ -218,7 +216,7 @@ bins, confident errors are answers with p >= 0.9 that are wrong.
 
 {latency}
 {abstention}
-{FAMILY_SECTION}## Usage
+{family_section()}## Usage
 
 ```python
 from assay.model import AssayModel

@@ -17,7 +17,7 @@ import shutil
 from huggingface_hub import HfApi
 
 from assay.compiled import CONFIG_FILE, WEIGHTS_FILE
-from assay.publish import FAMILY_SECTION, metrics_row
+from assay.publish import family_section, metrics_row
 from assay.seq2seq import CONFIG_FILE as SEQ2SEQ_CONFIG_FILE
 from assay.seq2seq import WEIGHTS_FILE as SEQ2SEQ_WEIGHTS_FILE
 
@@ -155,7 +155,7 @@ multi-step reasoning are near chance. See the repository's `docs/roadmap.md` for
 comparison against the other tiers.
 
 {latency}
-{FAMILY_SECTION}
+{family_section()}
 ## Usage
 
 ```python
