@@ -14,10 +14,11 @@ python examples/quickstart.py --model Berk/assay-0.6b
 
 One support ticket, three question types, calibrated probabilities with a confidence and an
 evidence score. Nothing is generated: each number is a distribution over the option labels.
-The encoder tier runs the same script on a CPU:
+`load_model` reads the tier from the saved configuration, so the same script runs the
+small tiers on a CPU:
 
 ```bash
-python examples/quickstart.py --model Berk/assay-compiled-base --tier encoder
+python examples/quickstart.py --model Berk/assay-compiled-base --device cpu
 ```
 
 ## Walk a decision tree

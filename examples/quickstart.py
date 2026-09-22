@@ -2,12 +2,13 @@
 
     python examples/quickstart.py --model Berk/assay-0.6b
 
-Any tier works: a Hub id or a run directory for the decoder models, or an encoder-tier
-directory with --tier encoder, which runs on a CPU.
+Any tier works: `load_model` reads the tier from the saved configuration. The small tiers
+run on a CPU with --device cpu.
 """
 
 import argparse
 
+from assay import load_model
 from assay.schema import Question
 
 TICKET = {
@@ -39,24 +40,13 @@ QUESTIONS = {
 }
 
 
-def load(model: str, tier: str, device: str):
-    if tier == "encoder":
-        from assay.compiled import load_any
-
-        return load_any(model, device=device)
-    from assay.model import AssayModel
-
-    return AssayModel.from_pretrained(model)
-
-
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="Berk/assay-0.6b")
-    ap.add_argument("--tier", choices=["decoder", "encoder"], default="decoder")
-    ap.add_argument("--device", default="cpu", help="only used by the encoder tier")
+    ap.add_argument("--device", default="cuda", help="where the small tiers load")
     args = ap.parse_args()
 
-    model = load(args.model, args.tier, args.device)
+    model = load_model(args.model, device=args.device)
     answers = model.answer(state=TICKET, questions=QUESTIONS)
 
     route = answers["route"]

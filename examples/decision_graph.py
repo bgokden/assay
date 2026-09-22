@@ -10,8 +10,8 @@ back instead of guessing.
 import argparse
 import json
 
+from assay import load_model
 from assay.graph import Graph, walk
-from assay.model import AssayModel
 
 TICKET = {
     "channel": "email",
@@ -70,10 +70,11 @@ GRAPH = {
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="Berk/assay-0.6b")
+    ap.add_argument("--device", default="cuda", help="where the small tiers load")
     args = ap.parse_args()
 
     graph = Graph.from_dict(GRAPH)
-    model = AssayModel.from_pretrained(args.model)
+    model = load_model(args.model, device=args.device)
     answers = model.answer(state=TICKET, questions=graph.questions())
     result = walk(graph, answers)
 
