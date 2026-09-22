@@ -196,3 +196,44 @@ def test_the_same_server_serves_the_encoder_tier(model):
     )
     assert one.status_code == 200, one.text
     assert 0.0 <= one.json()["nouls"]["short"]["noul"] <= 1.0
+
+
+def test_a_graph_over_the_encoder_tier_runs_in_one_pass(model):
+    from fastapi.testclient import TestClient
+
+    from assay.server import create_app
+
+    client = TestClient(create_app(model, "encoder-tier"))
+    graph = {
+        "start": "triage",
+        "nodes": {
+            "triage": {
+                "question": {
+                    "type": "choice",
+                    "instructions": "Which team should handle this?",
+                    "options": {"billing": "Charges and refunds", "technical": "Bugs"},
+                },
+                "edges": {"billing": "refund", "technical": "outage"},
+            },
+            "refund": {
+                "question": {"type": "bool", "instructions": REFUND.instructions},
+                "edges": {"yes": "pay", "no": "reply"},
+            },
+            "outage": {
+                "question": {"type": "bool", "instructions": "Is a service outage described?"},
+                "edges": {"yes": "page", "no": "reply"},
+            },
+            "pay": {"outcome": "refund"},
+            "reply": {"outcome": "reply"},
+            "page": {"outcome": "page_oncall"},
+        },
+    }
+    r = client.post("/v1/decide_graph", json={"state": STATE, "graph": graph})
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["outcome"] in {"refund", "reply", "page_oncall"}
+    assert out["usage"] == {
+        "input_tokens": out["usage"]["input_tokens"],
+        "questions": 3,
+        "forward_passes": 1,
+    }

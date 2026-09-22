@@ -277,7 +277,11 @@ def create_app(
             "model": model_name,
             **result,
             "answers": out,
-            "usage": {"input_tokens": tokens, "questions": len(questions), "forward_passes": 1},
+            "usage": {
+                "input_tokens": tokens,
+                "questions": len(questions),
+                "forward_passes": runner.passes([qs]),
+            },
             "latency_ms": round(elapsed, 1),
         }
 

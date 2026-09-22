@@ -48,9 +48,16 @@ class PackedRunner:
     ) -> list[list[Answer]]:
         return self.model.answer_packed(items, questions)
 
+    def passes(self, questions: list[list[Question]]) -> int:
+        """Every question of every request is a branch of one prefill."""
+        return 1
+
 
 class DirectRunner:
-    """One row per (state, question); the rows of a whole batch run in one forward pass."""
+    """One row per (state, question), in chunks: a request with two hundred questions over a
+    long state would not fit in one forward pass."""
+
+    ROW_BUDGET = 64
 
     def __init__(self, model, max_state_tokens: int = 4096) -> None:
         self.model = model
@@ -73,18 +80,24 @@ class DirectRunner:
         for item, qs in zip(items, questions):
             states += [item.state] * len(qs)
             flat += qs
-        logits, evidence = self.model(states, flat)
-        probs = torch.softmax(logits.float() / self.model.temperature, dim=-1)
-        ev = torch.sigmoid(evidence.float())
+        answers: list[Answer] = []
+        for start in range(0, len(flat), self.ROW_BUDGET):
+            chunk = slice(start, start + self.ROW_BUDGET)
+            logits, evidence = self.model(states[chunk], flat[chunk])
+            probs = torch.softmax(logits.float() / self.model.temperature, dim=-1)
+            ev = torch.sigmoid(evidence.float())
+            for i, q in enumerate(flat[chunk]):
+                answers.append(make_answer(q, probs[i, : len(q.keys)].tolist(), ev[i].item()))
         out: list[list[Answer]] = []
         row = 0
         for qs in questions:
-            answers = []
-            for q in qs:
-                answers.append(make_answer(q, probs[row, : len(q.keys)].tolist(), ev[row].item()))
-                row += 1
-            out.append(answers)
+            out.append(answers[row : row + len(qs)])
+            row += len(qs)
         return out
+
+    def passes(self, questions: list[list[Question]]) -> int:
+        rows = sum(len(qs) for qs in questions)
+        return max(1, -(-rows // self.ROW_BUDGET))
 
 
 def runner_for(model, max_state_tokens: int = 4096):
