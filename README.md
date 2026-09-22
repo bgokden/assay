@@ -123,6 +123,16 @@ and 0.341), in the same direction for both seeds; accuracy and post-scaling ECE 
 noise. At this scale the readout design and a single temperature do most of the calibration
 work; soft targets are a modest, consistent extra.
 
+**Abstention** (`assay.conformal`, alpha 0.1, delta 0.05, fitted on the seen-task calibration
+split): assay-4b acts on 88% of bool and 75% of choice questions there with 7.4% and 8.0%
+error among the acted-on answers, as the construction guarantees. On the eleven unseen tasks
+the same thresholds act on 75% / 74% with 10.2% / 8.0% error and the prediction sets cover
+the label 86% / 93% of the time; on the transfer suite the error is 14%. Task shift costs a
+few points over the stated rate, less for choice than for bool; the report prints both so
+the number you quote is the one for your data. Score questions get prediction sets (about
+two levels wide) but no act threshold at this alpha, because exact-level accuracy is the
+wrong error notion for ordinal answers.
+
 **Seed noise** (two seeds each): 1.7B runs reproduce to 0.3 points on every split; two 4B runs
 differ by 0.5-0.7 points on seen and unseen tasks and 1.1 points on the 764-item transfer
 suite (0.784 and 0.795). Differences under about 1.5 points on the transfer suite are noise.
