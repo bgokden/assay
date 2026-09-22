@@ -261,7 +261,9 @@ Assay is not affiliated with or endorsed by either.
         f.write(card)
 
 
-def update_card_and_thresholds(run: str, repo: str, base: str, merged: bool, dry_run: bool) -> None:
+def update_card_and_thresholds(
+    run: str, repo: str, base: str, merged: bool, dry_run: bool, keep_staging: bool = False
+) -> None:
     staging = os.path.join(run, "hub-card")
     if os.path.exists(staging):
         shutil.rmtree(staging)
@@ -275,6 +277,8 @@ def update_card_and_thresholds(run: str, repo: str, base: str, merged: bool, dry
         return
     HfApi().upload_folder(folder_path=staging, repo_id=repo, repo_type="model")
     print(f"updated https://huggingface.co/{repo}")
+    if not keep_staging:
+        shutil.rmtree(staging)
 
 
 def main() -> None:
@@ -298,7 +302,12 @@ def main() -> None:
     base = config["base_model_id"]
     if args.card_only:
         update_card_and_thresholds(
-            args.run, args.repo, base, merged=not args.no_merge, dry_run=args.dry_run
+            args.run,
+            args.repo,
+            base,
+            merged=not args.no_merge,
+            dry_run=args.dry_run,
+            keep_staging=args.keep_staging,
         )
         return
     staging = os.path.join(args.run, "hub")
