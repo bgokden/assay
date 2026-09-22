@@ -8,6 +8,10 @@ and an **evidence** score that says whether the state contains what is needed to
 Every question is evaluated as an isolated branch over the shared state, in a single prefill,
 so a request with twenty questions costs about the same as a request with one.
 
+Five models, 149M to 27B, are on the Hub as the
+[Assay collection](https://huggingface.co/collections/Berk/assay-calibrated-typed-decisions-6ab2fcb2b7eea0b7aaf785ab),
+with their numbers side by side in [docs/models.md](docs/models.md).
+
 
 ```python
 from assay.model import AssayModel
