@@ -193,7 +193,8 @@ nothing at inference.
   minutes of plain-SDPA encoder training) faults at the same `libcuda.so` instruction and
   always on CPU core 6 of this 24-core machine, which points at that core. GPU jobs now run
   with `CPUAffinity=0-5,7-23` (systemd) or `taskset -c 0-5,7-23`; checkpoint plus resume
-  stays on in every trainer.
+  stays on in every trainer. Evidence, the test procedure and the fix options are in
+  `docs/ops.md`.
 
 ## Evaluation rules that apply to all of the above
 
