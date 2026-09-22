@@ -91,7 +91,9 @@ the *untrained* 1.7B decoder on unseen tasks (0.623), at a fraction of its cost:
 
 Queued: the compiled model with content-only options, 3 epochs at lr 5e-5 and 8 slots; a
 "conditioned" middle tier (instruction and state in one encoder pass, options compiled and
-scored by content: one pass per question rather than per option); ModernBERT-large.
+scored by content: one pass per question rather than per option). ModernBERT-large (MLM
+weights only, no retrieval fine-tuning) was tried and dropped: its loss stayed 70% above
+gte-base's at the same step, and it ran out of memory on the largest batches.
 Decision rule unchanged: the compiled tier stays only if it comes within 5 points of the
 cross-encoder on the holdout.
 
