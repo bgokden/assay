@@ -13,7 +13,9 @@ Each item names the evidence behind it, the expected gain, and what would make u
 | assay-27b (QLoRA on Qwen3.8-27B) | 0.834 / 0.243 / 0.040 | 0.842 / 0.221 / 0.040 | 0.842 / 0.229 / 0.041 |
 | Jev (third-party run) | - | - | 0.857 / 0.211 / - |
 
-Cells: accuracy / Brier / ECE after temperature scaling.
+Cells: accuracy / Brier / ECE after temperature scaling. Every published model, including
+assay-0.6b and the encoder tier, is in [models.md](models.md) with its abstention rates
+and latency.
 
 The gap to Jev on the transfer suite (8.7 points for the 4B) decomposes into knowledge
 (MMLU, ~2.9 points), date arithmetic (~1.7), offensive-language style (~1.2), rule
@@ -237,6 +239,20 @@ often (65% / 53% on unseen tasks) at similar error, the 27B more often (89% / 84
 
 The evidence head says "the state does not say"; this says "the model does not know". Costs
 nothing at inference.
+
+### 7. One pipeline and examples (done 2026-09-22, released as 1.0.0)
+
+The three tiers had three different entry points, and nothing took somebody else's data from
+a file to a served model without reading our scripts. `assay.pipeline` is that path: a JSON
+configuration names the data, the tier and the hyper-parameters, and the stages (train,
+calibrate, evaluate, conformal) run as separate processes, each skipped when its output is
+already there. Whatever is under `train` becomes flags for that tier's trainer, so the
+pipeline does not have to know the options.
+
+`examples/` carries a dataset generator in the record format, a configuration per tier, and
+scripts for the model API, decision graphs and both server interfaces. Two changes fell out of
+making the example work on a machine without a GPU: the compiled trainer takes its evaluation
+splits as `name=path` instead of assuming ours, and autocast follows the device it was given.
 
 ### Serving: what an inference engine can and cannot do for this model (researched 2026-09-22)
 
