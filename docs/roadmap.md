@@ -206,8 +206,54 @@ often (65% / 53% on unseen tasks) at similar error, the 27B more often (89% / 84
 The evidence head says "the state does not say"; this says "the model does not know". Costs
 nothing at inference.
 
+### Serving: what an inference engine can and cannot do for this model (researched 2026-09-22)
+
+A decision is one prefill forward pass with two outputs: the next-token logits at the decision
+position restricted to the option label ids, and the hidden state at that same position for the
+evidence head. Plus, optionally, our packing (several question branches behind one state, with
+a block mask and restarted position ids). What the engines document:
+
+- **SGLang** can do all of it. `/generate` takes `token_ids_logprob` (logprobs for a named set
+  of token ids, not just top-k) and `return_hidden_states` in the *same* request
+  (`python/sglang/srt/managers/io_struct.py`), so the evidence head runs client-side on the
+  returned vector; LoRA adapters are served and hot-swappable. `/v1/score` covers the readout
+  alone (`label_token_ids`, `apply_softmax`). Its merged multi-item scoring (PR #10979,
+  2025-10-09) is our packing, arrived at independently: items attend to the shared query prefix
+  but not to each other, and "token positions reset at each delimiter boundary"; measured
+  P99 8276 ms -> 511 ms on Qwen3-0.6B/H100. Cost: FlashInfer only, `/v1/score` only, and it
+  requires `--disable-radix-cache`, so packing and cross-request prefix caching are exclusive.
+- **vLLM** names things differently: its `/score` is a reranker API (one similarity number),
+  not restricted-label scoring; the readout goes through `logprobs` on a one-token generate.
+  Pooling (hidden states) is a separate *runner mode*, so logits and hidden states cannot come
+  from one request; combining them needs a custom model class via `ModelRegistry.register_model`.
+- **llama.cpp** has no restricted-token scoring endpoint: `n_probs` returns top-N candidates,
+  so a named option set needs `logit_bias` masking of everything else. `--pooling none` on
+  `/embeddings` does return per-token hidden states (the evidence head could run client-side),
+  but `/completion` and `/embeddings` are separate endpoints, so it is two forward passes.
+  Runtime LoRA and continuous batching are supported. One number that matters more for us than
+  for text generation: llama.cpp's own KL-divergence table (Llama-3-8B vs fp16) gives Q8_0
+  KL 0.0014 / RMS dp 1.2%, Q4_K_M KL 0.031 / RMS dp 5.5% with a systematic -0.6% mean shift.
+  We ship calibrated probabilities, so Q4 is not a free lunch here; if we go this route, test
+  ECE and Brier per quantization rather than assuming text-quality results carry over.
+- **Triton (Python backend)** is the cleanest generic fit for multi-output responses, at the
+  price of writing the batching ourselves.
+
+Conclusion: no engine replaces `assay.server` for research (our 4D masks and the encoder tier
+are not expressible in any of them), but SGLang is a real production backend for the decoder
+tier with the evidence head intact. The cheaper win comes first: our server answers one
+request at a time, while our own measurements show 24 questions cost 56 ms batched against
+544 ms serialised, so a dynamic batcher for this prefill-only workload is worth about 10x and
+needs no new dependency. Continuous batching as such is not the lever here: with no decode
+loop there is no head-of-line blocking to avoid, only batch filling and prefix reuse.
+
 ### Supporting work
 
+- Dynamic batching in `assay.server`: queue requests, bucket by length, one forward per batch
+  (prefill only, so no scheduler needed). Measured headroom about 10x on single-question loads.
+- Optional SGLang backend for the decoder tier: `/generate` with `token_ids_logprob` and
+  `return_hidden_states`, evidence head applied client-side, temperature and conformal
+  thresholds where they already are. Verify that the returned hidden state is the post-final-norm
+  vector our head was trained on before trusting the evidence output.
 - Prefix-state serving for hybrid backbones (snapshot the state's recurrent and KV state,
   run question suffixes as a batch) so packed multi-question requests work on Qwen3.5/3.8.
 - Latency and throughput benchmark per tier, including CPU for the compiled tier.
