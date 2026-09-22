@@ -221,6 +221,20 @@ notion of "unsupported"; treat it as a first filter, not a proof. Probabilities 
 in aggregate on the distributions above, which says nothing about any single answer or about
 your data: check calibration on your own labels before acting on thresholds.
 
+## Released data
+
+[Berk/assay-synthetic](https://huggingface.co/datasets/Berk/assay-synthetic) holds the parts
+of the training mix that this repository generates: 50k train and 2k test items for each of
+`policy` (rules composed with AND/OR/NOT/IF-ELSE over stated facts), `policy_hard` (nesting
+depth 3, predicates over text, and cases where a needed fact is missing so the answer is
+"cannot be determined") and `dates` (grace periods with dates in ISO, long, short, weekday
+and relative forms), plus the 90-question rubric bank used for distillation. Labels are
+computed in code, so they are exact and the test splits are a reliable measure of rule
+application and date reasoning. Apache-2.0.
+
+The public datasets Assay also trains on are not redistributed: they keep their own licences
+(several non-commercial) and are listed below and in `docs/datasets.md`.
+
 ## Data licences
 
 Training and evaluation sources with their declared licences are listed in
