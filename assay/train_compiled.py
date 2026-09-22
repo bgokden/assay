@@ -21,7 +21,7 @@ import torch
 import torch.nn.functional as F
 
 from assay.calibrate import CALIBRATION_SCORED, fit_temperature, rescale
-from assay.checkpoint import MAX_CONSECUTIVE_FAILURES, write_checkpoint
+from assay.checkpoint import MAX_CONSECUTIVE_FAILURES, remove_checkpoint, write_checkpoint
 from assay.compiled import ARCHITECTURES, CompiledModel
 from assay.evaluate import format_report, report
 from assay.metrics import Scored, write_scored
@@ -473,6 +473,7 @@ def run_training(model, args) -> None:
         evaluate_split(
             model, path, f"{split}-scaled", args.out, args.batch_size, pair_budget=args.pair_budget
         )
+    remove_checkpoint(os.path.join(args.out, "checkpoint.pt"))
 
 
 if __name__ == "__main__":

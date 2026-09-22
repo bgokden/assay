@@ -52,3 +52,12 @@ def write_checkpoint(path: str, state: dict, step: int) -> bool:
         print(f"checkpoint at step {step} was not written: {error}", flush=True)
         return False
     return True
+
+
+def remove_checkpoint(path: str) -> None:
+    """Drop the checkpoint of a finished run: the weights are saved and the evaluations are
+    written, so the optimizer state is only taking up the disk the next run needs."""
+    for name in (path, path + ".tmp"):
+        if os.path.exists(name):
+            os.remove(name)
+            print(f"removed {name}", flush=True)

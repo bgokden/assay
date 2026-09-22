@@ -21,7 +21,7 @@ import time
 import torch
 import torch.nn.functional as F
 
-from assay.checkpoint import MAX_CONSECUTIVE_FAILURES, write_checkpoint
+from assay.checkpoint import MAX_CONSECUTIVE_FAILURES, remove_checkpoint, write_checkpoint
 from assay.data.registry import sord_target
 from assay.encoding import Packed, collate, encode, identity_order
 from assay.evaluate import format_report, predict, report
@@ -302,6 +302,7 @@ def main() -> None:
     model.save_pretrained(args.out)
     print(f"saved to {args.out} after {step} steps, {time.time() - t0:.0f}s")
     evaluate_and_log(model, dev, log_path, step, args)
+    remove_checkpoint(os.path.join(checkpoint_dir, "state.pt"))
 
 
 def append_log(path: str, entry: dict) -> None:
