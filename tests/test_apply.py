@@ -149,3 +149,40 @@ def test_unlabelled_routing_reports_only_the_count(tmp_path):
     from assay.apply import summarise_routing
 
     assert summarise_routing([{"outcome": "x", "path": []}]) == {"routed": 1}
+
+
+def test_sweeping_a_threshold_reuses_the_answers(tmp_path):
+    """The model ran once; every threshold is a re-route of the same answers."""
+    from assay.agent import Agent
+    from assay.apply import format_sweep, read_records_for_apply, route_states, sweep_threshold
+
+    agent = Agent.from_dict(AGENT)
+    rows = [
+        {"state": "clear billing case", "expected": "issue_refund"},
+        {"state": "another billing case", "expected": "issue_refund"},
+    ]
+    states = write_states(tmp_path, rows)
+    model = RoutingStub({"Which": [0.7, 0.3]})
+    kept: list = []
+    list(route_states(model, agent, read_records_for_apply(states), keep=kept))
+    assert model.calls == 1
+
+    swept = sweep_threshold(agent, kept, "team", grid=[0.0, 0.6, 0.9])
+    assert model.calls == 1  # no further passes
+    by_threshold = {r["min_probability"]: r for r in swept}
+    assert by_threshold[0.0]["routed"] == 2 and by_threshold[0.0]["accuracy"] == 1.0
+    assert by_threshold[0.6]["handed_over"] == 0  # 0.7 clears a 0.6 guard
+    assert by_threshold[0.9]["handed_over"] == 2  # and fails a 0.9 one
+    assert by_threshold[0.9]["accuracy"] == 0.0  # handing over is wrong for these cases
+    assert agent.graph.nodes["team"].min_probability == 0.8  # the agent is left as it was
+
+    text = format_sweep("team", swept)
+    assert "min_probability on 'team'" in text and "hand_over_rate" in text
+
+
+def test_sweeping_an_unknown_node_is_an_error():
+    from assay.agent import Agent
+    from assay.apply import sweep_threshold
+
+    with pytest.raises(ValueError, match="no node called"):
+        sweep_threshold(Agent.from_dict(AGENT), [], "nowhere")

@@ -113,9 +113,11 @@ def route_states(
     batch_size: int = 8,
     max_state_tokens: int = 4096,
     conformal: dict | None = None,
+    keep: list[tuple[dict[str, Any], Any]] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """One routed decision per state, batched: the agent's whole graph is one pass per state
-    and several states share a pass."""
+    and several states share a pass. `keep` collects (answers, expected) pairs so thresholds
+    can be swept afterwards without asking the model again."""
     runner = runner_for(model, max_state_tokens)
     questions = agent.questions()
     names = list(questions)
@@ -127,7 +129,10 @@ def route_states(
         with torch.inference_mode():
             results = runner.answer_batch(items, [qs] * len(batch))
         for (state, identifier, expected), answers in zip(batch, results):
-            decision = agent.route(dict(zip(names, answers)), conformal)
+            by_node = dict(zip(names, answers))
+            if keep is not None:
+                keep.append((by_node, expected))
+            decision = agent.route(by_node, conformal)
             record = {"id": identifier, "state": state, **decision.to_dict()}
             if expected is not None:
                 record["expected"] = expected
@@ -166,11 +171,71 @@ def summarise_routing(records: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+SWEEP_GRID = [0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95]
+
+
+def sweep_threshold(
+    agent: Agent,
+    cases: list[tuple[dict[str, Any], Any]],
+    node: str,
+    grid: list[float] | None = None,
+    conformal: dict | None = None,
+) -> list[dict[str, Any]]:
+    """What a guard would have done, at each threshold, on answers already computed.
+
+    Routing is pure, so the whole sweep costs nothing but a loop: the model ran once. Each row
+    is what you would have got by setting `min_probability` on that node to that value.
+    """
+    if node not in agent.graph.nodes:
+        raise ValueError(f"agent {agent.name!r} has no node called {node!r}")
+    original = agent.graph.nodes[node].min_probability
+    rows = []
+    try:
+        for threshold in grid or SWEEP_GRID:
+            agent.graph.nodes[node].min_probability = threshold or None
+            routed = []
+            for answers, expected in cases:
+                decision = agent.route(answers, conformal)
+                routed.append(
+                    {
+                        "path": decision.path,
+                        "correct": decision.outcome == expected,
+                        "outcome": decision.outcome,
+                    }
+                )
+            summary = summarise_routing([r for r in routed if "correct" in r])
+            rows.append({"min_probability": threshold, **summary})
+    finally:
+        agent.graph.nodes[node].min_probability = original
+    return rows
+
+
+def format_sweep(node: str, rows: list[dict[str, Any]]) -> str:
+    """The trade-off table: what each threshold buys and what it costs in handovers."""
+    lines = [
+        f"min_probability on {node!r}:",
+        "  threshold  cases  accuracy  routed  routed_acc  handed_over  hand_over_rate",
+    ]
+    for r in rows:
+        routed_accuracy = r.get("routed_accuracy")
+        lines.append(
+            f"  {r['min_probability']:>9.2f}  {r.get('cases', 0):>5}  "
+            f"{r.get('accuracy') or 0:>8.3f}  {r.get('routed', 0):>6}  "
+            f"{routed_accuracy if routed_accuracy is not None else float('nan'):>10.3f}  "
+            f"{r.get('handed_over', 0):>11}  {r.get('hand_over_rate') or 0:>14.3f}"
+        )
+    return "\n".join(lines)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True, help="a run directory, a Hub id, or base:<hf id>")
     ap.add_argument("--questions", help="JSON object of named questions")
     ap.add_argument("--agent", help="an agent specification to route each state through")
+    ap.add_argument(
+        "--sweep",
+        help="after routing, show what each min_probability on this node would have done",
+    )
     ap.add_argument("--states", required=True, help="one state per line")
     ap.add_argument("--out", required=True)
     ap.add_argument("--batch-size", type=int, default=8, help="states per forward pass")
@@ -187,6 +252,7 @@ def main() -> None:
     model = load_model(args.model, device=args.device)
     model.eval()
     conformal = load_conformal(args.model) if os.path.isdir(args.model) else None
+    kept: list[tuple[dict[str, Any], Any]] | None = [] if args.sweep else None
     if agent is not None:
         stream = route_states(
             model,
@@ -195,6 +261,7 @@ def main() -> None:
             batch_size=args.batch_size,
             max_state_tokens=args.max_state_tokens,
             conformal=conformal,
+            keep=kept,
         )
     else:
         stream = apply_model(
@@ -221,6 +288,17 @@ def main() -> None:
     print(f"wrote {written} states with {what} to {args.out}")
     if agent is not None:
         print(json.dumps(summarise_routing(routed), indent=2))
+    if agent is not None and kept:
+        labelled = [(answers, expected) for answers, expected in kept if expected is not None]
+        if not labelled:
+            print("nothing to sweep: no record carried an expected outcome")
+        else:
+            print()
+            print(
+                format_sweep(
+                    args.sweep, sweep_threshold(agent, labelled, args.sweep, conformal=conformal)
+                )
+            )
 
 
 if __name__ == "__main__":

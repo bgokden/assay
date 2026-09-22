@@ -186,8 +186,29 @@ Read it as three numbers, not one. `routed_accuracy` is how often the agent was 
 acted on its own; `hand_over_rate` is what that cost you in human work; `handed_over_accuracy`
 is what the agent would have scored on the cases it declined -- if that is close to
 `routed_accuracy`, your guard is too tight and you are paying people to confirm what the model
-already knew. Tighten or loosen `min_probability` until the trade is the one you want, then
-keep the file as a regression test for the next model.
+already knew. Keep the file as a regression test for the next model.
+
+To pick the threshold, sweep it. Routing is pure, so every threshold is a re-route of answers
+the model already gave: the sweep costs one pass over the file, not one per value.
+
+```bash
+uv run python -m assay.apply --model Berk/assay-4b --agent examples/agents/support_triage.json \
+    --states labelled_tickets.jsonl --out routed.jsonl --sweep triage
+```
+
+```
+min_probability on 'triage':
+  threshold  cases  accuracy  routed  routed_acc  handed_over  hand_over_rate
+       0.00    500     0.831     500       0.831            0           0.000
+       0.50    500     0.847     476       0.863           24           0.048
+       0.70    500     0.862     431       0.901           69           0.138
+       0.90    500     0.844     338       0.944          162           0.324
+```
+
+Accuracy here counts a handover as wrong unless the case was labelled for the fallback, so the
+column bends: guarding too little acts on cases it should not, guarding too much hands over
+cases it would have got right. Pick the row where `routed_acc` is high enough for the action
+to be safe and `hand_over_rate` is work you can actually absorb.
 
 ## Designing one that works
 
