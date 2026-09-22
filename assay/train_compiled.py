@@ -190,7 +190,7 @@ def evaluate_split(
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--encoder", required=True)
+    ap.add_argument("--encoder", help="backbone id; not needed with --init")
     ap.add_argument("--data", required=True)
     ap.add_argument("--extra", nargs="*", default=[], help="additional train jsonl files")
     ap.add_argument("--out", required=True)
@@ -226,11 +226,17 @@ def main() -> None:
     )
     ap.add_argument("--reader-layers", type=int, default=3, help="joint reader depth (arch joint)")
     ap.add_argument(
+        "--init", help="continue from a saved compiled model instead of a fresh encoder"
+    )
+    ap.add_argument("--device", default="cuda")
+    ap.add_argument(
         "--late-interaction",
         action="store_true",
         help="add the option-token to state-token MaxSim term",
     )
     args = ap.parse_args()
+    if not args.encoder and not args.init:
+        ap.error("one of --encoder or --init is required")
     if args.pair_budget is None:
         args.pair_budget = {"cross": 64, "conditioned": 256, "compiled": 256, "joint": 128}[
             args.arch
@@ -240,9 +246,19 @@ def main() -> None:
     os.makedirs(args.out, exist_ok=True)
     with open(os.path.join(args.out, "train_args.json"), "w") as f:
         json.dump(vars(args), f, indent=2)
+    if args.init:
+        from assay.compiled import load_any
+
+        model = load_any(args.init, device=args.device)
+        model.train()
+        print(f"initialised from {args.init}", flush=True)
+        model.max_state_tokens = args.max_state_tokens
+        run_training(model, args)
+        return
     extra = {"reader_layers": args.reader_layers} if args.arch == "joint" else {}
     model = ARCHITECTURES[args.arch].from_encoder(
         args.encoder,
+        device=args.device,
         encoder_layers=args.encoder_layers,
         pooling=args.pooling,
         lora_r=args.lora,
@@ -277,7 +293,10 @@ def main() -> None:
             pair_budget=args.pair_budget,
         )
         return
+    run_training(model, args)
 
+
+def run_training(model, args) -> None:
     records = flatten(list(read_records(os.path.join(args.data, "train.jsonl"), limit=args.limit)))
     for extra in args.extra:
         records += flatten(list(read_records(extra)))
