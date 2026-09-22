@@ -36,6 +36,7 @@ import contextlib
 import json
 import os
 import time
+from importlib.metadata import version
 from typing import Any
 
 import torch
@@ -114,7 +115,7 @@ def create_app(
         yield
         await batcher.stop()  # drain in-flight batches on shutdown
 
-    app = FastAPI(title="assay", version="0.5.0", lifespan=lifespan)
+    app = FastAPI(title="assay", version=version("assay"), lifespan=lifespan)
     app.state.batcher = batcher
 
     @app.middleware("http")

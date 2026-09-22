@@ -215,6 +215,38 @@ curl -s localhost:8000/v1/decide -H 'content-type: application/json' -d '{
   }}'
 ```
 
+## Train on your own data
+
+One JSON file describes the data, the tier and the hyper-parameters; the pipeline runs
+training, temperature calibration, evaluation and conformal abstention as separate processes
+and skips any stage whose output is already there.
+
+```bash
+uv run python examples/support_data.py                                  # a dataset in the record format
+uv run python -m assay.pipeline --config examples/pipelines/support-encoder.json --dry-run
+uv run python -m assay.pipeline --config examples/pipelines/support-encoder.json
+uv run python -m assay.server --model runs/example-support-encoder      # the same server, your model
+```
+
+```json
+{
+  "name": "support-encoder",
+  "tier": "encoder",
+  "base_model": "Alibaba-NLP/gte-modernbert-base",
+  "data": "examples/data/support",
+  "out": "runs/example-support-encoder",
+  "train": {"epochs": 2, "lr": 5e-5, "batch_size": 16},
+  "conformal": {"alpha": 0.1, "delta": 0.05}
+}
+```
+
+`tier` is `decoder`, `encoder` or `seq2seq`; whatever is under `train` becomes flags for that
+tier's trainer, so every option a trainer has is available without the pipeline knowing about
+it. The training data is one JSON object per line: a state and the typed questions over it
+with their labels (`assay/records.py` documents the fields). [examples/](examples/) has the
+runnable scripts for the model API, decision graphs and both server interfaces;
+[docs/models.md](docs/models.md) is the table of every published model.
+
 ## Reproduce
 
 ```bash
