@@ -15,6 +15,7 @@ import json
 import math
 import os
 import random
+import shutil
 import time
 
 import torch
@@ -63,14 +64,29 @@ def training_schedule(
 
 
 def save_checkpoint(path: str, model, optimizer, scheduler, step: int) -> None:
+    """Write through a temporary file, and never replace a good checkpoint with a short one:
+    a full disk truncates the write without raising, which leaves an unloadable checkpoint."""
+    previous = os.path.getsize(path) if os.path.exists(path) else 0
+    free = shutil.disk_usage(os.path.dirname(path) or ".").free
+    if previous and free < previous * 1.2:
+        print(
+            f"skipping checkpoint at step {step}: {free / 2**30:.1f} GiB free is too little",
+            flush=True,
+        )
+        return
     state = {
         "model": {k: v.detach().cpu() for k, v in model.state_dict().items()},
         "optimizer": optimizer.state_dict(),
         "scheduler": scheduler.state_dict(),
         "step": step,
     }
-    torch.save(state, path + ".tmp")
-    os.replace(path + ".tmp", path)
+    tmp = path + ".tmp"
+    torch.save(state, tmp)
+    if previous and os.path.getsize(tmp) < previous * 0.5:
+        os.remove(tmp)
+        print(f"discarding a short checkpoint at step {step}; keeping the previous one", flush=True)
+        return
+    os.replace(tmp, path)
 
 
 def load_checkpoint(path: str, model, optimizer, scheduler) -> int:

@@ -244,3 +244,72 @@ def test_systemone_and_decide_agree(client):
     assert b["nouls"]["refund_requested"]["noul"] == pytest.approx(
         a["refund_requested"]["p_true"], abs=1e-4
     )
+
+
+def test_systemone_batch(client):
+    body = {
+        "requests": [
+            {
+                "state": "Refund my duplicate charge please.",
+                "questions": {
+                    "refund": {"type": "noul", "instructions": "Did the customer request a refund?"}
+                },
+            },
+            {
+                "state": "The dashboard is down for everyone.",
+                "questions": {
+                    "outage": {"type": "noul", "instructions": "Is a service outage described?"},
+                    "route": {
+                        "type": "choice",
+                        "instructions": "Which team?",
+                        "criteria": {"billing": "Payments", "technical": "Faults"},
+                    },
+                },
+            },
+        ]
+    }
+    r = client.post("/v1/systemone/batch", json=body)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["usage"] == {
+        "requests": 2,
+        "decisions": 3,
+        "input_tokens": out["usage"]["input_tokens"],
+    }
+    assert len(out["results"]) == 2
+    assert "refund" in out["results"][0]["nouls"]
+    assert set(out["results"][1]["nouls"]) == {"outage"}
+    assert set(out["results"][1]["choices"]) == {"route"}
+
+
+def test_batch_rejects_too_many_decisions(client):
+    many = {
+        "requests": [
+            {
+                "state": "x",
+                "questions": {
+                    f"q{i}": {"type": "noul", "instructions": "Is this short?"} for i in range(200)
+                },
+            }
+            for _ in range(4)
+        ]
+    }
+    r = client.post("/v1/systemone/batch", json=many)
+    assert r.status_code == 422
+
+
+def test_api_key_is_enforced_when_configured():
+    from fastapi.testclient import TestClient
+
+    from assay.model import AssayModel
+    from assay.server import create_app
+
+    dtype = torch.float32 if DEVICE == "cpu" else torch.bfloat16
+    model = AssayModel.from_base(BASE, lora_r=None, dtype=dtype, device=DEVICE)
+    model.eval()
+    guarded = TestClient(create_app(model, "test-model", api_key="secret"))
+    body = {"state": "x", "questions": {"q": {"type": "bool", "instructions": "Short?"}}}
+    assert guarded.post("/v1/decide", json=body).status_code == 401
+    assert guarded.get("/health").status_code == 200  # probes stay open
+    ok = guarded.post("/v1/decide", json=body, headers={"Authorization": "Bearer secret"})
+    assert ok.status_code == 200

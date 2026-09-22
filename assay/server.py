@@ -31,6 +31,7 @@ that threshold before it routes.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import contextlib
 import json
 import os
@@ -39,7 +40,8 @@ from typing import Any
 
 import torch
 import uvicorn
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from assay.batching import Batcher, QueueFull
@@ -62,12 +64,23 @@ class GraphRequest(BaseModel):
     graph: dict[str, Any]
 
 
+MAX_BATCH_REQUESTS = 128
+MAX_BATCH_DECISIONS = 512
+
+
 class SystemOneRequest(BaseModel):
     """The System One style payload used by other open decision models: a state, named
     questions typed choice/noul/score, and options under `criteria`."""
 
     state: Any
     questions: dict[str, dict[str, Any]] = Field(min_length=1, max_length=MAX_QUESTIONS)
+    model: str | None = None
+
+
+class BatchRequest(BaseModel):
+    """Several independent states in one submission, each with its own questions."""
+
+    requests: list[SystemOneRequest] = Field(min_length=1, max_length=MAX_BATCH_REQUESTS)
     model: str | None = None
 
 
@@ -92,6 +105,7 @@ def create_app(
     max_state_tokens: int = 4096,
     conformal: dict[str, Any] | None = None,
     batcher: Batcher | None = None,
+    api_key: str | None = None,
 ) -> FastAPI:
     batcher = batcher or Batcher(model)
 
@@ -102,6 +116,16 @@ def create_app(
 
     app = FastAPI(title="assay", version="0.5.0", lifespan=lifespan)
     app.state.batcher = batcher
+
+    @app.middleware("http")
+    async def authorise(request: Request, call_next):
+        """Optional bearer auth, off unless a key is configured; health and metrics stay open
+        so a load balancer can still probe the service."""
+        if api_key and request.url.path.startswith("/v1/"):
+            header = request.headers.get("authorization", "")
+            if header.removeprefix("Bearer ").strip() != api_key:
+                return JSONResponse({"detail": "unauthorised"}, status_code=401)
+        return await call_next(request)
 
     def parse(questions: dict[str, dict[str, Any]]) -> dict[str, Question]:
         try:
@@ -200,6 +224,30 @@ def create_app(
             "latency_ms": round(elapsed, 1),
         }
 
+    @app.post("/v1/systemone/batch")
+    async def systemone_batch(req: BatchRequest) -> dict[str, Any]:
+        """Independent decisions in one submission, answered concurrently; the batcher packs
+        whatever lands in the same window into one forward pass."""
+        total = sum(len(r.questions) for r in req.requests)
+        if total > MAX_BATCH_DECISIONS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{total} decisions exceeds the limit of {MAX_BATCH_DECISIONS}",
+            )
+        t0 = time.perf_counter()
+        results = await asyncio.gather(*(systemone(r) for r in req.requests))
+        elapsed = (time.perf_counter() - t0) * 1000.0
+        return {
+            "model": model_name,
+            "results": results,
+            "usage": {
+                "requests": len(req.requests),
+                "decisions": total,
+                "input_tokens": sum(r["usage"]["input_tokens"] for r in results),
+            },
+            "latency_ms": round(elapsed, 1),
+        }
+
     @app.post("/v1/decide_graph")
     async def decide_graph(req: GraphRequest) -> dict[str, Any]:
         t0 = time.perf_counter()
@@ -263,6 +311,11 @@ def main() -> None:
         "--max-queue", type=int, default=256, help="queued requests before answering 503"
     )
     ap.add_argument(
+        "--api-key",
+        default=os.environ.get("ASSAY_API_KEY"),
+        help="require this bearer token on /v1/ (default: $ASSAY_API_KEY, otherwise open)",
+    )
+    ap.add_argument(
         "--workers-per-device", type=int, default=1, help="uvicorn workers; one GPU serves one"
     )
     args = ap.parse_args()
@@ -279,7 +332,12 @@ def main() -> None:
         max_queue=args.max_queue,
     )
     app = create_app(
-        model, name, args.max_state_tokens, conformal=load_conformal(args.model), batcher=batcher
+        model,
+        name,
+        args.max_state_tokens,
+        conformal=load_conformal(args.model),
+        batcher=batcher,
+        api_key=args.api_key,
     )
     uvicorn.run(app, host=args.host, port=args.port, workers=args.workers_per_device)
 

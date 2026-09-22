@@ -193,6 +193,13 @@ uv run pytest                                             # unit tests (download
 uv run python -m assay.server --model Berk/assay-4b       # POST /v1/decide on :8000
 ```
 
+`assay.backends.sglang` serves the decoder tier through an SGLang deployment instead of local
+transformers: `/generate` returns `token_ids_logprob` and `return_hidden_states` in one
+request, so the readout and the evidence head both come from one forward pass, and
+RadixAttention reuses a state prefix across separate questions. Check a deployment with
+`verify_against_local` before trusting it - SGLang's response layout is not pinned by a
+published schema.
+
 The server also accepts the System One style payload that other open decision models use
 (`/v1/systemone`, questions typed `choice`/`noul`/`score` with options under `criteria`), so a
 client written for that interface works unchanged; `POST /v1/decide_graph` walks a decision

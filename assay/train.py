@@ -16,6 +16,7 @@ import json
 import math
 import os
 import random
+import shutil
 import time
 
 import torch
@@ -308,7 +309,15 @@ def trainable_state(model: AssayModel) -> dict[str, torch.Tensor]:
 def save_checkpoint(
     path: str, model: AssayModel, optimizer, scheduler, step: int, update: int
 ) -> None:
+    """A full disk truncates the write without raising, so a short file is never allowed to
+    replace a good checkpoint."""
     os.makedirs(path, exist_ok=True)
+    final = os.path.join(path, "state.pt")
+    previous = os.path.getsize(final) if os.path.exists(final) else 0
+    free = shutil.disk_usage(path).free
+    if previous and free < previous * 1.2:
+        print(f"skipping checkpoint at step {step}: {free / 2**30:.1f} GiB free", flush=True)
+        return
     tmp = os.path.join(path, "state.pt.tmp")
     torch.save(
         {
@@ -322,7 +331,11 @@ def save_checkpoint(
         },
         tmp,
     )
-    os.replace(tmp, os.path.join(path, "state.pt"))
+    if previous and os.path.getsize(tmp) < previous * 0.5:
+        os.remove(tmp)
+        print(f"discarding a short checkpoint at step {step}; keeping the previous", flush=True)
+        return
+    os.replace(tmp, final)
 
 
 def load_checkpoint(path: str, model: AssayModel, optimizer, scheduler) -> tuple[int, int]:
