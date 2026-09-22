@@ -186,6 +186,9 @@ def main() -> None:
     ap.add_argument("--run", required=True)
     ap.add_argument("--repo", required=True)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument(
+        "--keep-staging", action="store_true", help="leave the staged copy in the run directory"
+    )
     ap.add_argument("--card-only", action="store_true", help="upload just the model card")
     args = ap.parse_args()
     files = model_files(args.run)
@@ -223,6 +226,8 @@ def main() -> None:
     else:
         api.upload_folder(folder_path=staging, repo_id=args.repo, repo_type="model")
     print(f"uploaded to https://huggingface.co/{args.repo}")
+    if not args.keep_staging:
+        shutil.rmtree(staging)  # a full copy of what the Hub now holds, rebuilt on demand
 
 
 if __name__ == "__main__":
