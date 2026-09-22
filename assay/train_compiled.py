@@ -212,7 +212,13 @@ def main() -> None:
         action="store_true",
         help="evaluate the untrained cosine baseline and exit",
     )
-    ap.add_argument("--arch", choices=sorted(ARCHITECTURES), default="compiled")
+    ap.add_argument("--arch", choices=[*sorted(ARCHITECTURES), "seq2seq"], default="compiled")
+    ap.add_argument(
+        "--encoder-question",
+        action="store_true",
+        help="seq2seq: put the question in the encoder with the state (the pretrained arrangement) "
+        "instead of the decoder (which lets one state serve many questions)",
+    )
     ap.add_argument(
         "--pair-budget", type=int, help="max options per batch (default 256 compiled, 64 cross)"
     )
@@ -255,19 +261,31 @@ def main() -> None:
         model.max_state_tokens = args.max_state_tokens
         run_training(model, args)
         return
-    extra = {"reader_layers": args.reader_layers} if args.arch == "joint" else {}
-    model = ARCHITECTURES[args.arch].from_encoder(
-        args.encoder,
-        device=args.device,
-        encoder_layers=args.encoder_layers,
-        pooling=args.pooling,
-        lora_r=args.lora,
-        slots=args.slots,
-        late_interaction=args.late_interaction or args.arch == "joint",
-        **extra,
-    )
+    if args.arch == "seq2seq":
+        from assay.seq2seq import Seq2SeqModel
+
+        model = Seq2SeqModel.from_encoder(
+            args.encoder,
+            device=args.device,
+            lora_r=args.lora,
+            decoder_question=not args.encoder_question,
+        )
+    else:
+        extra = {"reader_layers": args.reader_layers} if args.arch == "joint" else {}
+        model = ARCHITECTURES[args.arch].from_encoder(
+            args.encoder,
+            device=args.device,
+            encoder_layers=args.encoder_layers,
+            pooling=args.pooling,
+            lora_r=args.lora,
+            slots=args.slots,
+            late_interaction=args.late_interaction or args.arch == "joint",
+            **extra,
+        )
     model.max_state_tokens = args.max_state_tokens
-    if args.arch != "compiled":
+    if args.arch == "seq2seq":
+        model.enable_gradient_checkpointing()
+    elif args.arch != "compiled":
         model.encoder.gradient_checkpointing_enable()
 
     if args.zero_shot_only:
@@ -305,8 +323,11 @@ def run_training(model, args) -> None:
     total = len(schedule)
     warmup = int(total * args.warmup)
 
-    enc_params = list(model.encoder.parameters())
-    head_params = [p for n, p in model.named_parameters() if not n.startswith("encoder.")]
+    # the backbone is `encoder` in the compiled tiers and `model` in the seq2seq tier; the
+    # rest (reader, scoring heads, evidence head) trains at the higher head learning rate
+    backbone = "model." if hasattr(model, "model") else "encoder."
+    enc_params = [p for n, p in model.named_parameters() if n.startswith(backbone)]
+    head_params = [p for n, p in model.named_parameters() if not n.startswith(backbone)]
     optimizer = torch.optim.AdamW(
         [
             {"params": enc_params, "lr": args.lr, "weight_decay": 0.01},
