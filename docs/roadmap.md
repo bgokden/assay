@@ -274,12 +274,30 @@ property the decoder tier gets for free. It costs 14 points of unseen accuracy, 
 pays for one pass per question. Zero-shot, before any training, both arrangements sit at
 0.34-0.39.
 
+A bigger, instruction-tuned backbone made it worse. T5Gemma-1 `b-b-ul2-it` is the larger
+model (12 layers each side at hidden 768 against 270m's smaller stacks) and the only T5Gemma
+generation with instruction-tuned checkpoints, which was the reason to try it:
+
+| backbone | seen (dev) | unseen (holdout) | transfer-v4 |
+|---|---|---|---|
+| T5Gemma-2 270m-270m | 0.685 / 0.418 | 0.615 / 0.468 | 0.579 / 0.504 |
+| T5Gemma-1 b-b-ul2-it | 0.611 / 0.481 | 0.521 / 0.526 | 0.539 / 0.567 |
+
+Nine points of unseen accuracy worse, in the same recipe. Zero-shot the two are within half a
+point of each other (0.393 against 0.381), so instruction tuning buys nothing for a readout
+that is a distribution over option labels rather than an instruction to follow, and the newer
+pretraining generation matters more than the parameter count. We did not run the `l-l` variant
+after this: it is the same T5Gemma-1 lineage at four times the cost.
+
 Against the other small models: the trained encoder tier is 0.606 / 0.542 and assay-0.6b is
-0.704 / 0.636 at 0.6B parameters, answering 24 questions in the same pass. The
+0.704 / 0.636 at 0.6B parameters, answering 24 questions in the same pass. The best
 encoder-decoder lands between them on unseen tasks (0.615) and above the encoder tier on
 transfer (0.579 against 0.542), while costing a pass per question. It is a better encoder
-tier, not a competitor to the small decoder, which is the same conclusion as step 3 seen from
-the other side: the readout is what matters, and a decoder-only model reads best.
+tier, not a competitor to the small decoder, so it is not published; the conclusion is step 3
+seen from the other side, that the readout is what matters and a decoder-only model reads
+best. Conformal abstention was fitted on both runs and behaves as constructed (the 270m acts
+on 11% of bool and 14% of choice questions on unseen tasks at 4.5% and 6.8% error), which is
+the tier's honest use: a cheap first pass that says when it does not know.
 
 ### Serving: what an inference engine can and cannot do for this model (researched 2026-09-22)
 
