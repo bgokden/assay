@@ -78,6 +78,7 @@ scaling.
 | zero-shot cosine, untrained | 0.417 / 0.665 / 0.116 | 0.541 / 0.563 / 0.067 | 0.514 / 0.585 / 0.075 |
 | compiled, 1 epoch, lr 2e-5, options carry the instruction | 0.591 / 0.490 / 0.029 | 0.545 / 0.538 / 0.033 | 0.423 / 0.621 / 0.086 |
 | cross-encoder (one pass per option) | 0.670 / 0.422 / 0.027 | 0.619 / 0.479 / 0.025 | 0.527 / 0.531 / 0.061 |
+| compiled, 3 epochs, lr 5e-5, 8 slots, content-only options | 0.642 / 0.455 / 0.038 | 0.561 / 0.517 / 0.045 | 0.423 / 0.635 / 0.090 |
 
 The first compiled run underfits (train loss 0.86 against 0.4-0.6 for the decoders, still
 falling when the schedule ended) and had a design flaw: every option text began with the
@@ -89,7 +90,11 @@ the *untrained* 1.7B decoder on unseen tasks (0.623), at a fraction of its cost:
 8 threads the compiled model encodes a state in 30 ms, compiles six questions once in
 135 ms, and then decides all six in 2 ms.
 
-Queued: the compiled model with content-only options, 3 epochs at lr 5e-5 and 8 slots; a
+The three-epoch run with content-only options fixes the bool family (0.613 -> 0.669 on
+unseen bool questions; scitail 0.71 -> 0.83) and lifts seen tasks by five points, but it
+overfits (fitted temperature 1.93) and stays 5.8 points behind the cross-encoder on unseen
+tasks; the transfer suite does not move because its knowledge families (MMLU, SciQ) need what
+a 149M encoder does not have. Queued: a
 "conditioned" middle tier (instruction and state in one encoder pass, options compiled and
 scored by content: one pass per question rather than per option). ModernBERT-large (MLM
 weights only, no retrieval fine-tuning) was tried and dropped: its loss stayed 70% above
