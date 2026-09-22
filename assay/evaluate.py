@@ -1,7 +1,7 @@
 """Score a model on a record file: accuracy, Brier, NLL, ECE, confident errors, per source.
 
-    uv run python -m assay.evaluate --model base:Qwen/Qwen3-1.7B-Base --data suite.jsonl
-    uv run python -m assay.evaluate --model runs/assay-1.7b --data suite.jsonl --out res.json
+uv run python -m assay.evaluate --model base:Qwen/Qwen3-1.7B-Base --data suite.jsonl
+uv run python -m assay.evaluate --model runs/assay-1.7b --data suite.jsonl --out res.json
 """
 
 from __future__ import annotations
@@ -27,7 +27,11 @@ def load_model(
 ) -> AssayModel:
     if spec.startswith("base:"):
         return AssayModel.from_base(
-            spec[len("base:") :], lora_r=None, dtype=dtype, quantization=quantization, max_memory=max_memory
+            spec[len("base:") :],
+            lora_r=None,
+            dtype=dtype,
+            quantization=quantization,
+            max_memory=max_memory,
         )
     return AssayModel.from_pretrained(spec, dtype=dtype)
 
@@ -45,7 +49,9 @@ def predict(
     records = list(records)
     if model.hybrid:
         records = [
-            Record(state=r.state, questions=[lq], meta=r.meta) for r in records for lq in r.questions
+            Record(state=r.state, questions=[lq], meta=r.meta)
+            for r in records
+            for lq in r.questions
         ]
     packed: list[Packed] = []
     for r in records:
@@ -68,7 +74,8 @@ def predict(
         for start in range(0, len(order), batch_size):
             idx = order[start : start + batch_size]
             answers = model.answer_packed(
-                [packed[i] for i in idx], [[lq.question for lq in records[i].questions] for i in idx]
+                [packed[i] for i in idx],
+                [[lq.question for lq in records[i].questions] for i in idx],
             )
             for i, a in zip(idx, answers):
                 results[i] = a
@@ -142,8 +149,13 @@ def main() -> None:
     ap.add_argument("--batch-size", type=int, default=16)
     ap.add_argument("--temperature", type=float)
     ap.add_argument("--max-state-tokens", type=int, default=2048)
-    ap.add_argument("--quant", choices=["8bit", "4bit"], help="bitsandbytes quantization for base: models")
-    ap.add_argument("--gpu-memory", help="for base: models larger than the GPU, e.g. 28GiB; the rest goes to CPU RAM")
+    ap.add_argument(
+        "--quant", choices=["8bit", "4bit"], help="bitsandbytes quantization for base: models"
+    )
+    ap.add_argument(
+        "--gpu-memory",
+        help="for base: models larger than the GPU, e.g. 28GiB; the rest goes to CPU RAM",
+    )
     ap.add_argument("--cpu-memory", default="50GiB")
     args = ap.parse_args()
     max_memory = {0: args.gpu_memory, "cpu": args.cpu_memory} if args.gpu_memory else None

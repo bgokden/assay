@@ -11,17 +11,17 @@ import ast
 import collections
 from typing import Any
 
+from assay.data.policy import generate as generate_policy
 from assay.data.registry import (
     Builder,
     Example,
     TaskSpec,
+    bool_builder,
     choice_builder,
     clip_text,
-    bool_builder,
     pick,
     score_builder,
 )
-from assay.data.policy import generate as generate_policy
 from assay.schema import Question
 
 PARQUET = "refs/convert/parquet"
@@ -69,9 +69,20 @@ AG_NEWS = TaskSpec(
 )
 
 DBPEDIA_NAMES = [
-    "company", "educational_institution", "artist", "athlete", "office_holder",
-    "mean_of_transportation", "building", "natural_place", "village", "animal", "plant",
-    "album", "film", "written_work",
+    "company",
+    "educational_institution",
+    "artist",
+    "athlete",
+    "office_holder",
+    "mean_of_transportation",
+    "building",
+    "natural_place",
+    "village",
+    "animal",
+    "plant",
+    "album",
+    "film",
+    "written_work",
 ]
 DBPEDIA = TaskSpec(
     name="dbpedia",
@@ -113,7 +124,10 @@ BBC_NEWS = TaskSpec(
     eval_split="test",
     holdout=True,
     build=choice_builder(
-        ["Which BBC News section does this article belong to?", "What is the topic of the article?"],
+        [
+            "Which BBC News section does this article belong to?",
+            "What is the topic of the article?",
+        ],
         {
             "business": "Economy, companies and markets",
             "entertainment": "Film, music, television and celebrities",
@@ -412,14 +426,17 @@ SST5 = TaskSpec(
 )
 
 
-
 def _dynasent_counts(row: dict[str, Any]) -> list[float] | None:
     dist = row.get("label_distribution")
     if isinstance(dist, str):
         dist = ast.literal_eval(dist)
     if not dist:
         return None
-    return [float(len(dist.get("negative", []))), float(len(dist.get("neutral", []))), float(len(dist.get("positive", [])))]
+    return [
+        float(len(dist.get("negative", []))),
+        float(len(dist.get("neutral", []))),
+        float(len(dist.get("positive", []))),
+    ]
 
 
 DYNASENT = TaskSpec(
@@ -431,7 +448,10 @@ DYNASENT = TaskSpec(
     eval_split="validation",
     revision=PARQUET,
     build=score_builder(
-        ["What is the sentiment of this sentence?", "Is this sentence negative, neutral or positive?"],
+        [
+            "What is the sentiment of this sentence?",
+            "Is this sentence negative, neutral or positive?",
+        ],
         ["Negative", "Neutral or mixed", "Positive"],
         lambda r: r["sentence"],
         lambda r: {"negative": 0, "neutral": 1, "positive": 2}.get(r["gold_label"]),
@@ -518,7 +538,9 @@ CB = TaskSpec(
         NLI_INSTRUCTIONS,
         NLI_OPTIONS,
         lambda r: {"premise": r["premise"], "hypothesis": r["hypothesis"]},
-        lambda r: ["entailment", "contradiction", "neutral"][r["label"]] if r["label"] >= 0 else None,
+        lambda r: (
+            ["entailment", "contradiction", "neutral"][r["label"]] if r["label"] >= 0 else None
+        ),
     ),
     max_train=250,
     max_eval=56,
@@ -531,7 +553,10 @@ RTE = TaskSpec(
     split="train",
     eval_split="validation",
     build=bool_builder(
-        ["Does the text entail the hypothesis?", "If the text is true, must the hypothesis be true?"],
+        [
+            "Does the text entail the hypothesis?",
+            "If the text is true, must the hypothesis be true?",
+        ],
         lambda r: {"text": r["sentence1"], "hypothesis": r["sentence2"]},
         lambda r: r["label"] == 0 if r["label"] >= 0 else None,
         yes="The hypothesis follows from the text",
@@ -592,7 +617,10 @@ QQP = TaskSpec(
     split="train",
     eval_split="validation",
     build=bool_builder(
-        ["Are these two questions asking the same thing?", "Would one answer satisfy both questions?"],
+        [
+            "Are these two questions asking the same thing?",
+            "Would one answer satisfy both questions?",
+        ],
         lambda r: {"question_1": r["question1"], "question_2": r["question2"]},
         lambda r: r["label"] == 1 if r["label"] >= 0 else None,
         yes="Duplicates: the same information need",
@@ -608,7 +636,10 @@ MRPC = TaskSpec(
     split="train",
     eval_split="validation",
     build=bool_builder(
-        ["Do these two sentences mean the same thing?", "Is the second sentence a paraphrase of the first?"],
+        [
+            "Do these two sentences mean the same thing?",
+            "Is the second sentence a paraphrase of the first?",
+        ],
         lambda r: {"sentence_1": r["sentence1"], "sentence_2": r["sentence2"]},
         lambda r: r["label"] == 1 if r["label"] >= 0 else None,
     ),
@@ -645,7 +676,7 @@ STSB = TaskSpec(
             "Completely equivalent",
         ],
         lambda r: {"sentence_1": r["sentence1"], "sentence_2": r["sentence2"]},
-        lambda r: int(round(float(r["label"]))),
+        lambda r: round(float(r["label"])),
         value_fn=lambda r: float(r["label"]),
     ),
     max_train=1000,
@@ -846,10 +877,34 @@ ENRON_SPAM = TaskSpec(
 # ----------------------------------------------------------------------------------------
 
 GO_EMOTIONS = [
-    "admiration", "amusement", "anger", "annoyance", "approval", "caring", "confusion",
-    "curiosity", "desire", "disappointment", "disapproval", "disgust", "embarrassment",
-    "excitement", "fear", "gratitude", "grief", "joy", "love", "nervousness", "optimism",
-    "pride", "realization", "relief", "remorse", "sadness", "surprise", "neutral",
+    "admiration",
+    "amusement",
+    "anger",
+    "annoyance",
+    "approval",
+    "caring",
+    "confusion",
+    "curiosity",
+    "desire",
+    "disappointment",
+    "disapproval",
+    "disgust",
+    "embarrassment",
+    "excitement",
+    "fear",
+    "gratitude",
+    "grief",
+    "joy",
+    "love",
+    "nervousness",
+    "optimism",
+    "pride",
+    "realization",
+    "relief",
+    "remorse",
+    "sadness",
+    "surprise",
+    "neutral",
 ]
 
 
@@ -858,7 +913,9 @@ def _go_emotions_prepare(ds) -> list[dict[str, Any]]:
     for row in ds:
         if row.get("example_very_unclear"):
             continue
-        g = groups.setdefault(row["id"], {"text": row["text"], "raters": 0, "counts": collections.Counter()})
+        g = groups.setdefault(
+            row["id"], {"text": row["text"], "raters": 0, "counts": collections.Counter()}
+        )
         g["raters"] += 1
         for e in GO_EMOTIONS:
             if row.get(e):
@@ -919,7 +976,9 @@ STANCE_ABORTION = _stance("stance_abortion", "legal abortion")
 STANCE_ATHEISM = _stance("stance_atheism", "atheism")
 STANCE_FEMINIST = _stance("stance_feminist", "the feminist movement")
 STANCE_HILLARY = _stance("stance_hillary", "Hillary Clinton")
-STANCE_CLIMATE = _stance("stance_climate", "the view that climate change is a real concern", holdout=True)
+STANCE_CLIMATE = _stance(
+    "stance_climate", "the view that climate change is a real concern", holdout=True
+)
 
 TWEET_SENTIMENT = TaskSpec(
     name="tweet_sentiment",
@@ -949,7 +1008,10 @@ BOOLQ = TaskSpec(
     swap_state_fraction=0.25,
     swap_state_key="passage",
     build=bool_builder(
-        ["Based on the passage, is the answer to the question yes?", "Answer the question using the passage."],
+        [
+            "Based on the passage, is the answer to the question yes?",
+            "Answer the question using the passage.",
+        ],
         lambda r: {"passage": clip_text(r["passage"], 1800), "question": r["question"]},
         lambda r: bool(r["answer"]),
     ),
@@ -1034,7 +1096,11 @@ DREAM = TaskSpec(
         ["Which option correctly answers the question about the dialogue?"],
         lambda r: _list_options(r["choice"]),
         lambda r: {"dialogue": clip_text(" ".join(r["dialogue"]), 1800), "question": r["question"]},
-        lambda r: letters(len(r["choice"]))[r["choice"].index(r["answer"])] if r["answer"] in r["choice"] else None,
+        lambda r: (
+            letters(len(r["choice"]))[r["choice"].index(r["answer"])]
+            if r["answer"] in r["choice"]
+            else None
+        ),
     ),
 )
 
@@ -1063,7 +1129,9 @@ SWAG = TaskSpec(
         ["Which ending most plausibly continues the situation?"],
         lambda r: _list_options([r["ending0"], r["ending1"], r["ending2"], r["ending3"]]),
         lambda r: f"{r['sent1']} {r['sent2']}",
-        lambda r: letters(4)[int(r["label"])] if r["label"] is not None and r["label"] >= 0 else None,
+        lambda r: (
+            letters(4)[int(r["label"])] if r["label"] is not None and r["label"] >= 0 else None
+        ),
     ),
     max_train=600,
 )
@@ -1079,7 +1147,9 @@ PIQA = TaskSpec(
         ["Which solution achieves the goal?"],
         lambda r: _list_options([r["sol1"], r["sol2"]]),
         lambda r: {"goal": r["goal"]},
-        lambda r: letters(2)[int(r["label"])] if r["label"] is not None and r["label"] >= 0 else None,
+        lambda r: (
+            letters(2)[int(r["label"])] if r["label"] is not None and r["label"] >= 0 else None
+        ),
     ),
     max_train=600,
 )
@@ -1110,7 +1180,9 @@ WINOGRANDE = TaskSpec(
         ["Which option fills in the blank correctly?"],
         lambda r: _list_options([r["option1"], r["option2"]]),
         lambda r: r["sentence"],
-        lambda r: letters(2)[int(r["answer"]) - 1] if str(r["answer"]).strip() in ("1", "2") else None,
+        lambda r: (
+            letters(2)[int(r["answer"]) - 1] if str(r["answer"]).strip() in ("1", "2") else None
+        ),
     ),
     max_train=800,
 )
@@ -1233,7 +1305,10 @@ SHP = TaskSpec(
     split="train",
     eval_split="validation",
     build=choice_builder(
-        ["Which reply would the community find more helpful?", "Which response is the better answer to the post?"],
+        [
+            "Which reply would the community find more helpful?",
+            "Which response is the better answer to the post?",
+        ],
         lambda r: {"a": clip_text(r["human_ref_A"], 700), "b": clip_text(r["human_ref_B"], 700)},
         lambda r: {"post": clip_text(r["history"], 1500)},
         lambda r: "a" if int(r["labels"]) == 1 else "b",
@@ -1329,23 +1404,78 @@ POLICY = TaskSpec(
 
 TASKS: list[TaskSpec] = [
     # topic
-    AG_NEWS, DBPEDIA, BBC_NEWS, TREC, LEDGAR, SCOTUS,
+    AG_NEWS,
+    DBPEDIA,
+    BBC_NEWS,
+    TREC,
+    LEDGAR,
+    SCOTUS,
     # intent
-    BANKING77, CLINC,
+    BANKING77,
+    CLINC,
     # sentiment
-    IMDB, ROTTEN, SST2, AMAZON_POLARITY, YELP, AMAZON_STARS, APP_REVIEWS, SST5,
-    DYNASENT, TWEET_SENTIMENT,
+    IMDB,
+    ROTTEN,
+    SST2,
+    AMAZON_POLARITY,
+    YELP,
+    AMAZON_STARS,
+    APP_REVIEWS,
+    SST5,
+    DYNASENT,
+    TWEET_SENTIMENT,
     # nli / verification / paraphrase / linguistics
-    MNLI, SNLI, ANLI, CB, RTE, SCITAIL, VITAMINC, QQP, MRPC, MEDICAL_PAIRS, STSB, COLA, SUBJ, WIC,
+    MNLI,
+    SNLI,
+    ANLI,
+    CB,
+    RTE,
+    SCITAIL,
+    VITAMINC,
+    QQP,
+    MRPC,
+    MEDICAL_PAIRS,
+    STSB,
+    COLA,
+    SUBJ,
+    WIC,
     # toxicity / hate / spam
-    CIVIL_TOXIC, CIVIL_SEVERITY, HATE_SPEECH, TWEET_HATE, TWEET_IRONY, ETHOS, SMS_SPAM, ENRON_SPAM,
+    CIVIL_TOXIC,
+    CIVIL_SEVERITY,
+    HATE_SPEECH,
+    TWEET_HATE,
+    TWEET_IRONY,
+    ETHOS,
+    SMS_SPAM,
+    ENRON_SPAM,
     # emotion / stance
-    GOEMOTIONS, STANCE_ABORTION, STANCE_ATHEISM, STANCE_FEMINIST, STANCE_HILLARY, STANCE_CLIMATE,
+    GOEMOTIONS,
+    STANCE_ABORTION,
+    STANCE_ATHEISM,
+    STANCE_FEMINIST,
+    STANCE_HILLARY,
+    STANCE_CLIMATE,
     # reading comprehension / commonsense / knowledge
-    BOOLQ, MULTIRC, RACE, COSMOS, DREAM, HELLASWAG, SWAG, PIQA, SIQA, WINOGRANDE, COPA,
-    COMMONSENSE_QA, ARC_CHALLENGE, ARC_EASY, OPENBOOKQA, MEDQA, TRUTHFUL_QA,
+    BOOLQ,
+    MULTIRC,
+    RACE,
+    COSMOS,
+    DREAM,
+    HELLASWAG,
+    SWAG,
+    PIQA,
+    SIQA,
+    WINOGRANDE,
+    COPA,
+    COMMONSENSE_QA,
+    ARC_CHALLENGE,
+    ARC_EASY,
+    OPENBOOKQA,
+    MEDQA,
+    TRUTHFUL_QA,
     # judging
-    SHP, HH_RLHF,
+    SHP,
+    HH_RLHF,
     # truthfulness
     LIAR,
     # synthetic

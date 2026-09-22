@@ -10,10 +10,9 @@ evidence head on a real "the state does not say" signal rather than only on pass
 from __future__ import annotations
 
 import dataclasses
+import functools
 import random
 from typing import Any
-
-import functools
 
 from assay.data.registry import Example
 from assay.schema import Question
@@ -44,7 +43,20 @@ BOOLEAN_FACTS = [
     "signed agreement on file",
 ]
 PARTY_PAIRS = [("requester", "approver"), ("submitter", "reviewer"), ("payer", "beneficiary")]
-NAMES = ["Priya", "Noah", "Mira", "Tomas", "Kofi", "Elena", "Yusuf", "Hana", "Leo", "Sofia", "Berk", "Ana"]
+NAMES = [
+    "Priya",
+    "Noah",
+    "Mira",
+    "Tomas",
+    "Kofi",
+    "Elena",
+    "Yusuf",
+    "Hana",
+    "Leo",
+    "Sofia",
+    "Berk",
+    "Ana",
+]
 DISTRACTORS = [
     ("ticket id", lambda rng: str(rng.randrange(1000, 9999))),
     ("routing reference", lambda rng: str(rng.randrange(100, 999))),
@@ -63,8 +75,28 @@ class Pred:
 
 
 TEXT_FIELDS = {
-    "ticket subject": ["refund", "invoice", "outage", "password", "upgrade", "cancel", "shipping", "duplicate", "urgent", "renewal"],
-    "internal note": ["verified", "escalated", "fraud", "vip", "chargeback", "resolved", "pending", "legal"],
+    "ticket subject": [
+        "refund",
+        "invoice",
+        "outage",
+        "password",
+        "upgrade",
+        "cancel",
+        "shipping",
+        "duplicate",
+        "urgent",
+        "renewal",
+    ],
+    "internal note": [
+        "verified",
+        "escalated",
+        "fraud",
+        "vip",
+        "chargeback",
+        "resolved",
+        "pending",
+        "legal",
+    ],
 }
 
 
@@ -79,8 +111,18 @@ def make_predicate(rng: random.Random, facts: dict[str, Any], hard: bool = False
         facts[name] = " ".join(words)
         target = rng.choice(TEXT_FIELDS[name])
         if rng.random() < 0.5:
-            return Pred(kind, name, f"the {name} contains the word \"{target}\"", lambda f, n=name, t=target: t in f[n].split())
-        return Pred(kind, name, f"the {name} does not contain the word \"{target}\"", lambda f, n=name, t=target: t not in f[n].split())
+            return Pred(
+                kind,
+                name,
+                f'the {name} contains the word "{target}"',
+                lambda f, n=name, t=target: t in f[n].split(),
+            )
+        return Pred(
+            kind,
+            name,
+            f'the {name} does not contain the word "{target}"',
+            lambda f, n=name, t=target: t not in f[n].split(),
+        )
     if kind == "numeric":
         name, lo, hi = rng.choice(NUMERIC_FACTS)
         facts[name] = rng.randint(lo, hi)
@@ -97,10 +139,22 @@ def make_predicate(rng: random.Random, facts: dict[str, Any], hard: bool = False
             return Pred(kind, name, text, lambda f, a=a, b=b, n=name: a <= f[n] <= b)
         t = rng.randint(lo + 1, hi - 1)
         texts = {
-            "gt": [f"the {name} is greater than {t}", f"the {name} exceeds {t}", f"the {name} is above {t}"],
+            "gt": [
+                f"the {name} is greater than {t}",
+                f"the {name} exceeds {t}",
+                f"the {name} is above {t}",
+            ],
             "ge": [f"the {name} is at least {t}", f"the {name} is {t} or more"],
-            "lt": [f"the {name} is less than {t}", f"the {name} is below {t}", f"the {name} is under {t}"],
-            "le": [f"the {name} is at most {t}", f"the {name} is {t} or less", f"the {name} does not exceed {t}"],
+            "lt": [
+                f"the {name} is less than {t}",
+                f"the {name} is below {t}",
+                f"the {name} is under {t}",
+            ],
+            "le": [
+                f"the {name} is at most {t}",
+                f"the {name} is {t} or less",
+                f"the {name} does not exceed {t}",
+            ],
         }
         fns = {
             "gt": lambda f, t=t, n=name: f[n] > t,
@@ -118,7 +172,10 @@ def make_predicate(rng: random.Random, facts: dict[str, Any], hard: bool = False
             return Pred(kind, name, f"the {name} is {v}", lambda f, v=v, n=name: f[n] == v)
         subset = rng.sample(values, 2)
         return Pred(
-            kind, name, f"the {name} is {subset[0]} or {subset[1]}", lambda f, s=subset, n=name: f[n] in s
+            kind,
+            name,
+            f"the {name} is {subset[0]} or {subset[1]}",
+            lambda f, s=subset, n=name: f[n] in s,
         )
     if kind == "boolean":
         name = rng.choice(BOOLEAN_FACTS)
@@ -134,8 +191,12 @@ def make_predicate(rng: random.Random, facts: dict[str, Any], hard: bool = False
     facts[b] = person_b
     key = f"{a}/{b}"
     if rng.random() < 0.5:
-        return Pred(kind, key, f"the {a} is the same person as the {b}", lambda f, a=a, b=b: f[a] == f[b])
-    return Pred(kind, key, f"the {a} and the {b} are different people", lambda f, a=a, b=b: f[a] != f[b])
+        return Pred(
+            kind, key, f"the {a} is the same person as the {b}", lambda f, a=a, b=b: f[a] == f[b]
+        )
+    return Pred(
+        kind, key, f"the {a} and the {b} are different people", lambda f, a=a, b=b: f[a] != f[b]
+    )
 
 
 @dataclasses.dataclass
@@ -145,12 +206,22 @@ class Rule:
     preds: list[Pred]
 
 
-def make_rule(rng: random.Random, facts: dict[str, Any], depth: int = 0, hard: bool = False) -> Rule:
+def make_rule(
+    rng: random.Random, facts: dict[str, Any], depth: int = 0, hard: bool = False
+) -> Rule:
     max_depth = 3 if hard else 2
     if hard:
-        shape = rng.choice(["and", "or", "not", "ifelse", "and", "or"] if depth == 0 else ["pred", "and", "or", "not", "ifelse"])
+        shape = rng.choice(
+            ["and", "or", "not", "ifelse", "and", "or"]
+            if depth == 0
+            else ["pred", "and", "or", "not", "ifelse"]
+        )
     else:
-        shape = rng.choice(["pred", "and", "or", "not", "ifelse"] if depth == 0 else ["pred", "pred", "and", "or", "not"])
+        shape = rng.choice(
+            ["pred", "and", "or", "not", "ifelse"]
+            if depth == 0
+            else ["pred", "pred", "and", "or", "not"]
+        )
     if shape == "pred" or depth >= max_depth:
         p = make_predicate(rng, facts, hard)
         return Rule(p.text, p.fn, [p])
@@ -159,13 +230,26 @@ def make_rule(rng: random.Random, facts: dict[str, Any], depth: int = 0, hard: b
         parts = [make_rule(rng, facts, depth + 1, hard) for _ in range(n)]
         preds = [p for r in parts for p in r.preds]
         if shape == "and":
-            text = rng.choice(["all of the following hold: ", "both of the following hold: " if n == 2 else "every one of the following holds: "]) + "; ".join(f"({r.text})" for r in parts)
+            text = rng.choice(
+                [
+                    "all of the following hold: ",
+                    "both of the following hold: "
+                    if n == 2
+                    else "every one of the following holds: ",
+                ]
+            ) + "; ".join(f"({r.text})" for r in parts)
             return Rule(text, lambda f, parts=parts: all(r.fn(f) for r in parts), preds)
-        text = rng.choice(["at least one of the following holds: ", "any of the following holds: "]) + "; ".join(f"({r.text})" for r in parts)
+        text = rng.choice(
+            ["at least one of the following holds: ", "any of the following holds: "]
+        ) + "; ".join(f"({r.text})" for r in parts)
         return Rule(text, lambda f, parts=parts: any(r.fn(f) for r in parts), preds)
     if shape == "not":
         inner = make_rule(rng, facts, depth + 1, hard)
-        return Rule(f"it is not the case that ({inner.text})", lambda f, inner=inner: not inner.fn(f), inner.preds)
+        return Rule(
+            f"it is not the case that ({inner.text})",
+            lambda f, inner=inner: not inner.fn(f),
+            inner.preds,
+        )
     cond = make_rule(rng, facts, depth + 1, hard)
     then = make_rule(rng, facts, depth + 1, hard)
     other = make_rule(rng, facts, depth + 1, hard)
@@ -177,7 +261,14 @@ def make_rule(rng: random.Random, facts: dict[str, Any], depth: int = 0, hard: b
     )
 
 
-PAST = {"approve": "approved", "accept": "accepted", "allow": "allowed", "deny": "denied", "reject": "rejected", "refuse": "refused"}
+PAST = {
+    "approve": "approved",
+    "accept": "accepted",
+    "allow": "allowed",
+    "deny": "denied",
+    "reject": "rejected",
+    "refuse": "refused",
+}
 
 
 def render_policy(rng: random.Random, subject: str, rule: Rule) -> str:
@@ -187,7 +278,9 @@ def render_policy(rng: random.Random, subject: str, rule: Rule) -> str:
     if style == 0:
         return f"{verb.capitalize()} the {subject} exactly when {rule.text}. Otherwise {deny} it."
     if style == 1:
-        return f"A {subject} is {PAST[verb]} only if {rule.text}; any other {subject} is {PAST[deny]}."
+        return (
+            f"A {subject} is {PAST[verb]} only if {rule.text}; any other {subject} is {PAST[deny]}."
+        )
     return f"Policy: {deny} the {subject} unless {rule.text}."
 
 
@@ -195,7 +288,7 @@ def render_fact(name: str, value: Any) -> str:
     if isinstance(value, bool):
         return f"{name.capitalize()}: {'yes' if value else 'no'}."
     if name in TEXT_FIELDS:
-        return f"The {name} reads: \"{value}\"."
+        return f'The {name} reads: "{value}".'
     if "/" in name:
         raise ValueError("identity keys are rendered per party")
     return f"The {name} is {value}."
@@ -229,7 +322,9 @@ def outcome_depends_on(rule: Rule, facts: dict[str, Any], name: str) -> bool:
     elif name in CATEGORICAL_FACTS:
         candidates = CATEGORICAL_FACTS[name]
     elif name in TEXT_FIELDS:
-        candidates = [" ".join(TEXT_FIELDS[name][i : i + 3]) for i in range(len(TEXT_FIELDS[name]) - 2)]
+        candidates = [
+            " ".join(TEXT_FIELDS[name][i : i + 3]) for i in range(len(TEXT_FIELDS[name]) - 2)
+        ]
     else:
         candidates = NAMES
     for c in candidates:
@@ -251,7 +346,12 @@ def generate(n: int, seed: int, hard: bool = False) -> list[Example]:
         verdict = rule.fn(facts)
         omit = None
         if rng.random() < 0.2:
-            candidates = [nm for p in rule.preds for nm in needed_fact_names(p) if outcome_depends_on(rule, facts, nm)]
+            candidates = [
+                nm
+                for p in rule.preds
+                for nm in needed_fact_names(p)
+                if outcome_depends_on(rule, facts, nm)
+            ]
             if candidates:
                 omit = rng.choice(candidates)
         state = {"policy": policy, "case": render_case(rng, facts, omit)}
@@ -260,30 +360,57 @@ def generate(n: int, seed: int, hard: bool = False) -> list[Example]:
             q = Question(
                 type="bool",
                 instructions=rng.choice(
-                    [f"Under the policy, is the {subject} approved?", f"Does the case satisfy the policy for this {subject}?"]
+                    [
+                        f"Under the policy, is the {subject} approved?",
+                        f"Does the case satisfy the policy for this {subject}?",
+                    ]
                 ),
             )
-            out.append(Example(state=state, question=q, label=bool(verdict), answerable=omit is None, name="verdict"))
+            out.append(
+                Example(
+                    state=state,
+                    question=q,
+                    label=bool(verdict),
+                    answerable=omit is None,
+                    name="verdict",
+                )
+            )
         elif kind == "choice":
             if omit is not None:
                 continue
             q = Question(
                 type="choice",
-                instructions=rng.choice(["Apply the policy to the case.", f"What is the verdict on this {subject}?"]),
-                options={"approve": f"The policy permits this {subject}", "reject": f"The policy does not permit this {subject}"},
+                instructions=rng.choice(
+                    ["Apply the policy to the case.", f"What is the verdict on this {subject}?"]
+                ),
+                options={
+                    "approve": f"The policy permits this {subject}",
+                    "reject": f"The policy does not permit this {subject}",
+                },
             )
-            out.append(Example(state=state, question=q, label="approve" if verdict else "reject", name="verdict"))
+            out.append(
+                Example(
+                    state=state,
+                    question=q,
+                    label="approve" if verdict else "reject",
+                    name="verdict",
+                )
+            )
         else:
             q = Question(
                 type="choice",
-                instructions=rng.choice(["Apply the policy to the case.", f"What is the verdict on this {subject}?"]),
+                instructions=rng.choice(
+                    ["Apply the policy to the case.", f"What is the verdict on this {subject}?"]
+                ),
                 options={
                     "approve": f"The policy permits this {subject}",
                     "reject": f"The policy does not permit this {subject}",
                     "cannot_be_determined": "A fact the policy depends on is missing from the case",
                 },
             )
-            label = "cannot_be_determined" if omit is not None else ("approve" if verdict else "reject")
+            label = (
+                "cannot_be_determined" if omit is not None else ("approve" if verdict else "reject")
+            )
             out.append(Example(state=state, question=q, label=label, name="verdict"))
     return out
 

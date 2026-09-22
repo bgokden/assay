@@ -105,7 +105,11 @@ def main() -> None:
     with open(config_path, "w") as f:
         json.dump(config, f, indent=2)
     with open(os.path.join(args.model, "calibration.json"), "w") as f:
-        json.dump({"temperature": temperature, "before": before["overall"], "after": after["overall"]}, f, indent=2)
+        json.dump(
+            {"temperature": temperature, "before": before["overall"], "after": after["overall"]},
+            f,
+            indent=2,
+        )
 
 
 if __name__ == "__main__":

@@ -231,7 +231,15 @@ class CompiledModel(nn.Module):
     def encode_tokens(self, texts: list[str], max_tokens: int) -> tuple[torch.Tensor, torch.Tensor]:
         batch = self.tokenizer(
             texts, padding=True, truncation=True, max_length=max_tokens, return_tensors="pt"
-        ).to(self.device)
+        )
+        ids, mask = batch["input_ids"], batch["attention_mask"]
+        if ids.shape[1] == 0:  # every text empty: give the batch one position to attend to
+            ids = torch.full((len(texts), 1), self.tokenizer.pad_token_id, dtype=ids.dtype)
+            mask = torch.zeros((len(texts), 1), dtype=mask.dtype)
+        # a text that tokenizes to nothing (tokenizers without special tokens) would leave a
+        # row with every key masked and a NaN softmax; let it attend to one pad token instead
+        mask[mask.sum(1) == 0, 0] = 1
+        batch = {"input_ids": ids.to(self.device), "attention_mask": mask.to(self.device)}
         hidden = self.encoder(**batch).last_hidden_state
         # the heads are fp32; a bf16 backbone (LoRA case) hands over fp32 features
         return hidden.to(self.slots.dtype), batch["attention_mask"]

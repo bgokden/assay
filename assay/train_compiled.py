@@ -323,6 +323,9 @@ def main() -> None:
         answer_loss = (ce * answerable).sum() / answerable.sum().clamp(min=1.0)
         evidence_loss = F.binary_cross_entropy_with_logits(evidence.float(), answerable)
         loss = answer_loss + args.evidence_weight * evidence_loss
+        if not torch.isfinite(loss):
+            ids = [r.meta.get("id") for r in batch]
+            raise RuntimeError(f"non-finite loss at step {step}; batch records {ids[:8]}")
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()

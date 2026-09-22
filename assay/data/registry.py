@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import dataclasses
 import random
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from assay.schema import Question
 

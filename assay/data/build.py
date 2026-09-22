@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import argparse
 import collections
+import contextlib
 import json
 import os
 import random
-import sys
-import traceback
+from typing import Any
 
 from datasets import load_dataset
 
@@ -106,50 +106,49 @@ def main() -> None:
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     selected = [t for t in TASKS if not args.tasks or t.name in args.tasks.split(",")]
-    files = {
-        name: open(os.path.join(args.out, f"{name}.jsonl"), "w")
-        for name in ("train", "calibration", "dev", "holdout")
-    }
     stats: dict[str, dict[str, int]] = collections.defaultdict(dict)
-    failures = []
-    for spec in selected:
-        max_train = 20 if args.smoke else spec.max_train
-        max_eval = 10 if args.smoke else spec.max_eval
-        try:
-            if spec.eval_split:
-                train = [] if spec.holdout else build_examples(spec, spec.split, max_train, args.seed)
-                evals = build_examples(spec, spec.eval_split, max_eval, args.seed + 1)
-            else:
-                budget = max_eval if spec.holdout else max_train + max_eval
-                pool = build_examples(spec, spec.split, budget, args.seed)
-                evals = pool[:max_eval]
-                train = [] if spec.holdout else pool[max_eval:]
-        except Exception as e:
-            failures.append((spec.name, f"{type(e).__name__}: {e}"))
-            traceback.print_exc(file=sys.stderr)
-            continue
-        if spec.holdout:
-            write_examples(files["holdout"], evals, spec, "holdout")
-            stats[spec.name]["holdout"] = len(evals)
-        else:
-            write_examples(files["train"], train, spec, "train")
-            half = len(evals) // 2
-            write_examples(files["calibration"], evals[:half], spec, "calibration")
-            write_examples(files["dev"], evals[half:], spec, "dev")
-            stats[spec.name]["train"] = len(train)
-            stats[spec.name]["calibration"] = half
-            stats[spec.name]["dev"] = len(evals) - half
-        print(f"{spec.name:<28} {stats[spec.name]}", flush=True)
-    for f in files.values():
-        f.close()
+    with contextlib.ExitStack() as stack:
+        files = {
+            name: stack.enter_context(open(os.path.join(args.out, f"{name}.jsonl"), "w"))
+            for name in ("train", "calibration", "dev", "holdout")
+        }
+        for spec in selected:
+            build_task(spec, args, files, stats)
     with open(os.path.join(args.out, "stats.json"), "w") as f:
-        json.dump({"tasks": stats, "failures": failures}, f, indent=2)
+        json.dump({"tasks": stats}, f, indent=2)
     totals = collections.Counter()
     for s in stats.values():
         totals.update(s)
     print("totals:", dict(totals))
-    if failures:
-        print("FAILED:", failures)
+
+
+def build_task(
+    spec: TaskSpec, args, files: dict[str, Any], stats: dict[str, dict[str, int]]
+) -> None:
+    """Build one task's splits; a source that fails to load fails the build (rerun with
+    --tasks for the rest)."""
+    max_train = 20 if args.smoke else spec.max_train
+    max_eval = 10 if args.smoke else spec.max_eval
+    if spec.eval_split:
+        train = [] if spec.holdout else build_examples(spec, spec.split, max_train, args.seed)
+        evals = build_examples(spec, spec.eval_split, max_eval, args.seed + 1)
+    else:
+        budget = max_eval if spec.holdout else max_train + max_eval
+        pool = build_examples(spec, spec.split, budget, args.seed)
+        evals = pool[:max_eval]
+        train = [] if spec.holdout else pool[max_eval:]
+    if spec.holdout:
+        write_examples(files["holdout"], evals, spec, "holdout")
+        stats[spec.name]["holdout"] = len(evals)
+    else:
+        write_examples(files["train"], train, spec, "train")
+        half = len(evals) // 2
+        write_examples(files["calibration"], evals[:half], spec, "calibration")
+        write_examples(files["dev"], evals[half:], spec, "dev")
+        stats[spec.name]["train"] = len(train)
+        stats[spec.name]["calibration"] = half
+        stats[spec.name]["dev"] = len(evals) - half
+    print(f"{spec.name:<28} {stats[spec.name]}", flush=True)
 
 
 if __name__ == "__main__":

@@ -90,7 +90,15 @@ class Scored:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Scored:
-        return cls(d["probs"], d["target"], d["label_index"], d["qtype"], d["source"], d["answerable"], d["evidence"])
+        return cls(
+            d["probs"],
+            d["target"],
+            d["label_index"],
+            d["qtype"],
+            d["source"],
+            d["answerable"],
+            d["evidence"],
+        )
 
 
 def write_scored(path: str, scored: Iterable[Scored]) -> None:
@@ -114,9 +122,7 @@ def summarize(items: Iterable[Scored], bins: int = 15) -> dict[str, Any]:
     eps = 1e-12
     nll_hard = np.array([-math.log(max(s.probs[s.label_index], eps)) for s in items])
     nll_soft = np.array([-(s.target * np.log(np.maximum(s.probs, eps))).sum() for s in items])
-    brier_hard = np.array(
-        [brier(s.probs, np.eye(len(s.probs))[s.label_index]) for s in items]
-    )
+    brier_hard = np.array([brier(s.probs, np.eye(len(s.probs))[s.label_index]) for s in items])
     brier_soft = np.array([brier(s.probs, s.target) for s in items])
     score_items = [s for s in items if s.qtype == "score"]
     out: dict[str, Any] = {
