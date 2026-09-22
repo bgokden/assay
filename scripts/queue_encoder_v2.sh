@@ -17,10 +17,12 @@ stage joint-gte-base $COMPILED --arch joint --encoder $ENCODER --data data/v4 --
   --out runs/joint-gte-base --epochs 2 --lr 5e-5 --slots 8 --reader-layers 3 --batch-size 16 || true
 
 # the distilled corpus is labelled in parallel; use whatever exists when this stage starts
+# the data lever is tested on the stronger architecture first: on the standard data the
+# joint reader (holdout 0.576, 2 epochs) is behind the simpler reader (0.606, 3 epochs)
 if [ -s "$CORPUS" ]; then
-  stage joint-gte-base-distilled $COMPILED --arch joint --encoder $ENCODER --data data/v4 --extra $GENERIC $CORPUS \
-    --out runs/joint-gte-base-distilled --epochs 1 --lr 5e-5 --slots 8 --reader-layers 3 --batch-size 16 || true
   stage compiled-late-distilled $COMPILED --encoder $ENCODER --data data/v4 --extra $GENERIC $CORPUS \
     --out runs/compiled-late-distilled --epochs 1 --lr 5e-5 --slots 8 --late-interaction || true
+  stage joint-gte-base-distilled $COMPILED --arch joint --encoder $ENCODER --data data/v4 --extra $GENERIC $CORPUS \
+    --out runs/joint-gte-base-distilled --epochs 1 --lr 5e-5 --slots 8 --reader-layers 3 --batch-size 16 || true
 fi
 log "encoder v2 queue finished"
