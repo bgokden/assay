@@ -16,12 +16,12 @@ import json
 import math
 import os
 import random
-import shutil
 import time
 
 import torch
 import torch.nn.functional as F
 
+from assay.checkpoint import MAX_CONSECUTIVE_FAILURES, write_checkpoint
 from assay.data.registry import sord_target
 from assay.encoding import Packed, collate, encode, identity_order
 from assay.evaluate import format_report, predict, report
@@ -229,6 +229,7 @@ def main() -> None:
         print(f"resumed from step {step} (update {update})")
     t0 = time.time()
     running = {"loss": 0.0, "answer": 0.0, "evidence": 0.0, "n": 0}
+    failed_saves = 0
     epochs_int = math.ceil(args.epochs)
     max_steps = int(steps_per_epoch * args.epochs)
     done = False
@@ -287,7 +288,15 @@ def main() -> None:
                 and step % args.checkpoint_every == 0
                 and step % args.grad_accum == 0
             ):
-                save_checkpoint(checkpoint_dir, model, optimizer, scheduler, step, update)
+                if save_checkpoint(checkpoint_dir, model, optimizer, scheduler, step, update):
+                    failed_saves = 0
+                else:
+                    failed_saves += 1
+                    if failed_saves >= MAX_CONSECUTIVE_FAILURES:
+                        raise RuntimeError(
+                            f"{failed_saves} checkpoints in a row could not be written; "
+                            "stopping while the run is still resumable"
+                        )
         if done:
             break
     model.save_pretrained(args.out)
@@ -308,18 +317,10 @@ def trainable_state(model: AssayModel) -> dict[str, torch.Tensor]:
 
 def save_checkpoint(
     path: str, model: AssayModel, optimizer, scheduler, step: int, update: int
-) -> None:
-    """A full disk truncates the write without raising, so a short file is never allowed to
-    replace a good checkpoint."""
+) -> bool:
     os.makedirs(path, exist_ok=True)
-    final = os.path.join(path, "state.pt")
-    previous = os.path.getsize(final) if os.path.exists(final) else 0
-    free = shutil.disk_usage(path).free
-    if previous and free < previous * 1.2:
-        print(f"skipping checkpoint at step {step}: {free / 2**30:.1f} GiB free", flush=True)
-        return
-    tmp = os.path.join(path, "state.pt.tmp")
-    torch.save(
+    return write_checkpoint(
+        os.path.join(path, "state.pt"),
         {
             "params": trainable_state(model),
             "optimizer": optimizer.state_dict(),
@@ -329,13 +330,8 @@ def save_checkpoint(
             "torch_rng": torch.get_rng_state(),
             "cuda_rng": torch.cuda.get_rng_state(),
         },
-        tmp,
+        step,
     )
-    if previous and os.path.getsize(tmp) < previous * 0.5:
-        os.remove(tmp)
-        print(f"discarding a short checkpoint at step {step}; keeping the previous", flush=True)
-        return
-    os.replace(tmp, final)
 
 
 def load_checkpoint(path: str, model: AssayModel, optimizer, scheduler) -> tuple[int, int]:

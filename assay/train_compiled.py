@@ -15,13 +15,13 @@ import json
 import math
 import os
 import random
-import shutil
 import time
 
 import torch
 import torch.nn.functional as F
 
 from assay.calibrate import CALIBRATION_SCORED, fit_temperature, rescale
+from assay.checkpoint import MAX_CONSECUTIVE_FAILURES, write_checkpoint
 from assay.compiled import ARCHITECTURES, CompiledModel
 from assay.evaluate import format_report, report
 from assay.metrics import Scored, write_scored
@@ -63,30 +63,17 @@ def training_schedule(
     return schedule
 
 
-def save_checkpoint(path: str, model, optimizer, scheduler, step: int) -> None:
-    """Write through a temporary file, and never replace a good checkpoint with a short one:
-    a full disk truncates the write without raising, which leaves an unloadable checkpoint."""
-    previous = os.path.getsize(path) if os.path.exists(path) else 0
-    free = shutil.disk_usage(os.path.dirname(path) or ".").free
-    if previous and free < previous * 1.2:
-        print(
-            f"skipping checkpoint at step {step}: {free / 2**30:.1f} GiB free is too little",
-            flush=True,
-        )
-        return
-    state = {
-        "model": {k: v.detach().cpu() for k, v in model.state_dict().items()},
-        "optimizer": optimizer.state_dict(),
-        "scheduler": scheduler.state_dict(),
-        "step": step,
-    }
-    tmp = path + ".tmp"
-    torch.save(state, tmp)
-    if previous and os.path.getsize(tmp) < previous * 0.5:
-        os.remove(tmp)
-        print(f"discarding a short checkpoint at step {step}; keeping the previous one", flush=True)
-        return
-    os.replace(tmp, path)
+def save_checkpoint(path: str, model, optimizer, scheduler, step: int) -> bool:
+    return write_checkpoint(
+        path,
+        {
+            "model": {k: v.detach().cpu() for k, v in model.state_dict().items()},
+            "optimizer": optimizer.state_dict(),
+            "scheduler": scheduler.state_dict(),
+            "step": step,
+        },
+        step,
+    )
 
 
 def load_checkpoint(path: str, model, optimizer, scheduler) -> int:
@@ -365,6 +352,7 @@ def run_training(model, args) -> None:
     t0 = time.time()
     running = {"loss": 0.0, "answer": 0.0, "evidence": 0.0, "n": 0}
     model.train()
+    failed_saves = 0
     for idx in schedule[step:]:
         batch = [records[i] for i in idx]
         qs = [r.questions[0].question for r in batch]
@@ -407,7 +395,15 @@ def run_training(model, args) -> None:
                 log.write(json.dumps(entry) + "\n")
             running = {"loss": 0.0, "answer": 0.0, "evidence": 0.0, "n": 0}
         if args.checkpoint_every and step % args.checkpoint_every == 0:
-            save_checkpoint(checkpoint_path, model, optimizer, scheduler, step)
+            if save_checkpoint(checkpoint_path, model, optimizer, scheduler, step):
+                failed_saves = 0
+            else:
+                failed_saves += 1
+                if failed_saves >= MAX_CONSECUTIVE_FAILURES:
+                    raise RuntimeError(
+                        f"{failed_saves} checkpoints in a row could not be written; "
+                        "stopping while the run is still resumable"
+                    )
     model.save_pretrained(args.out)
     print(f"saved to {args.out} after {step} steps, {time.time() - t0:.0f}s", flush=True)
 
