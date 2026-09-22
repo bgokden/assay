@@ -217,6 +217,13 @@ def main() -> None:
         "--pair-budget", type=int, help="max options per batch (default 256 compiled, 64 cross)"
     )
     ap.add_argument("--checkpoint-every", type=int, default=500)
+    ap.add_argument("--encoder-layers", type=int, help="keep only the first N backbone blocks")
+    ap.add_argument(
+        "--pooling", choices=["mean", "last"], default="mean", help="last for causal backbones"
+    )
+    ap.add_argument(
+        "--lora", type=int, help="LoRA rank for the backbone instead of full fine-tuning"
+    )
     ap.add_argument(
         "--late-interaction",
         action="store_true",
@@ -231,7 +238,12 @@ def main() -> None:
     with open(os.path.join(args.out, "train_args.json"), "w") as f:
         json.dump(vars(args), f, indent=2)
     model = ARCHITECTURES[args.arch].from_encoder(
-        args.encoder, slots=args.slots, late_interaction=args.late_interaction
+        args.encoder,
+        layers=args.encoder_layers,
+        pooling=args.pooling,
+        lora_r=args.lora,
+        slots=args.slots,
+        late_interaction=args.late_interaction,
     )
     model.max_state_tokens = args.max_state_tokens
     if args.arch != "compiled":

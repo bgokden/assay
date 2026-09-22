@@ -63,6 +63,24 @@ def mean_pool(hidden: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     return (hidden * m).sum(1) / m.sum(1).clamp(min=1.0)
 
 
+def last_pool(hidden: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """The last real token's state: the summary position of a causal (decoder) backbone."""
+    last = mask.sum(1).clamp(min=1) - 1
+    return hidden[torch.arange(hidden.shape[0], device=hidden.device), last]
+
+
+POOLING = {"mean": mean_pool, "last": last_pool}
+
+
+def truncate_layers(encoder: nn.Module, layers: int) -> None:
+    """Keep the first `layers` transformer blocks; mid-depth features are cheaper and, for a
+    decoder backbone, less specialised to next-token prediction."""
+    encoder.layers = encoder.layers[:layers]
+    encoder.config.num_hidden_layers = layers
+    if getattr(encoder.config, "layer_types", None):
+        encoder.config.layer_types = list(encoder.config.layer_types[:layers])
+
+
 class CompiledModel(nn.Module):
     def __init__(
         self,
@@ -96,14 +114,49 @@ class CompiledModel(nn.Module):
         self.hybrid = False  # for evaluate.predict compatibility
         # models saved before 2026-09-22 were trained with the instruction inside every option
         self.option_instructions = False
+        self.pooling = "mean"
 
     # --- construction ---------------------------------------------------------------------
 
     @classmethod
-    def from_encoder(cls, encoder_id: str, device: str = "cuda", **kw) -> CompiledModel:
+    def from_encoder(
+        cls,
+        encoder_id: str,
+        device: str = "cuda",
+        layers: int | None = None,
+        pooling: str = "mean",
+        lora_r: int | None = None,
+        **kw,
+    ) -> CompiledModel:
+        """layers: keep only the first N blocks. pooling: "mean" for bidirectional encoders,
+        "last" for causal backbones. lora_r: train the backbone through a LoRA adapter (merged
+        into the weights on save) instead of fully."""
         tokenizer = AutoTokenizer.from_pretrained(encoder_id)
-        encoder = AutoModel.from_pretrained(encoder_id, dtype=torch.float32)
+        dtype = torch.bfloat16 if lora_r else torch.float32
+        encoder = AutoModel.from_pretrained(encoder_id, dtype=dtype)
+        if layers is not None:
+            truncate_layers(encoder, layers)
+        if lora_r:
+            from peft import LoraConfig, get_peft_model
+
+            config = LoraConfig(
+                r=lora_r,
+                lora_alpha=2 * lora_r,
+                lora_dropout=0.05,
+                target_modules=[
+                    "q_proj",
+                    "k_proj",
+                    "v_proj",
+                    "o_proj",
+                    "gate_proj",
+                    "up_proj",
+                    "down_proj",
+                ],
+                bias="none",
+            )
+            encoder = get_peft_model(encoder, config)
         model = cls(encoder, tokenizer, encoder_id, **kw)
+        model.pooling = pooling
         return model.to(device)
 
     @classmethod
@@ -126,6 +179,7 @@ class CompiledModel(nn.Module):
             late_interaction=config.get("late_interaction", False),
         )
         model.option_instructions = config.get("option_instructions", True)
+        model.pooling = config.get("pooling", "mean")
         state = safetensors.torch.load_file(os.path.join(path, WEIGHTS_FILE))
         missing, unexpected = model.load_state_dict(state, strict=False)
         missing = [m for m in missing if not m.startswith("encoder.")]
@@ -135,6 +189,8 @@ class CompiledModel(nn.Module):
 
     def save_pretrained(self, path: str) -> None:
         os.makedirs(path, exist_ok=True)
+        if hasattr(self.encoder, "merge_and_unload"):
+            self.encoder = self.encoder.merge_and_unload()
         self.encoder.save_pretrained(path, safe_serialization=True)
         self.tokenizer.save_pretrained(path)
         head = {
@@ -151,6 +207,7 @@ class CompiledModel(nn.Module):
                     "heads": self.attn.num_heads,
                     "temperature": self.temperature,
                     "option_instructions": self.option_instructions,
+                    "pooling": self.pooling,
                     "late_interaction": self.late_scale is not None,
                     "arch": arch_name(self),
                 },
@@ -169,7 +226,11 @@ class CompiledModel(nn.Module):
             texts, padding=True, truncation=True, max_length=max_tokens, return_tensors="pt"
         ).to(self.device)
         hidden = self.encoder(**batch).last_hidden_state
-        return hidden, batch["attention_mask"]
+        # the heads are fp32; a bf16 backbone (LoRA case) hands over fp32 features
+        return hidden.to(self.slots.dtype), batch["attention_mask"]
+
+    def pool(self, hidden: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        return POOLING[self.pooling](hidden, mask)
 
     def encode_unique(self, texts: list[str]) -> tuple[torch.Tensor, torch.Tensor]:
         """Token encodings (N, T, d) and mask (N, T) for texts, encoding each distinct text
@@ -190,7 +251,7 @@ class CompiledModel(nn.Module):
         Each distinct text is encoded once per batch: records that share a question share
         its compiled parameters."""
         options = self.compile_options(questions)
-        q_vec = mean_pool(*self.encode_unique([q.instructions.strip() for q in questions]))
+        q_vec = self.pool(*self.encode_unique([q.instructions.strip() for q in questions]))
         queries = self.slots.unsqueeze(0) + self.query_proj(q_vec).unsqueeze(1)  # (B, M, d)
         return queries, options
 
@@ -202,7 +263,7 @@ class CompiledModel(nn.Module):
             flat.extend(texts)
             counts.append(len(texts))
         tokens, token_mask = self.encode_unique(flat)  # (sum K, T, d), (sum K, T)
-        opt_vec = mean_pool(tokens, token_mask)  # (sum K, d)
+        opt_vec = self.pool(tokens, token_mask)  # (sum K, d)
         b, k_max = len(questions), max(counts)
         vectors = opt_vec.new_zeros((b, k_max, self.d))
         valid = torch.zeros((b, k_max), dtype=torch.bool, device=opt_vec.device)
@@ -294,7 +355,7 @@ class CompiledModel(nn.Module):
     def zero_shot_logits(self, states: list[Any], questions: list[Question], scale: float = 20.0):
         """Untrained baseline: cosine similarity between the pooled state and each option text."""
         hidden, mask = self.encode_states(states)
-        s = F.normalize(mean_pool(hidden, mask), dim=-1)
+        s = F.normalize(self.pool(hidden, mask), dim=-1)
         _, options = self.compile_batch(questions)
         o = F.normalize(options.vectors, dim=-1)
         logits = torch.einsum("bd,bkd->bk", s, o) * scale
@@ -321,7 +382,7 @@ class CrossEncoderModel(CompiledModel):
             pairs.extend(f"{o}{self.tokenizer.sep_token or ' | '}{text}" for o in opts)
             counts.append(len(opts))
         hidden, mask = self.encode_tokens(pairs, self.max_pair_tokens)
-        pooled = mean_pool(hidden, mask)
+        pooled = self.pool(hidden, mask)
         scores = self.pair_head(pooled).squeeze(-1)
         k_max = max(counts)
         logits = scores.new_full((len(questions), k_max), float("-inf"))
