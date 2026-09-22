@@ -73,11 +73,6 @@ def write_card(run: str, repo: str, out_path: str) -> None:
     late = config.get("late_interaction", False)
     backbone = config.get("encoder_id") or config["model_id"]
     slots = f" ({config['slots']} query slots)" if "slots" in config else ""
-    loader_module, loader = (
-        ("seq2seq", "Seq2SeqModel.from_pretrained")
-        if tier == "seq2seq"
-        else ("compiled", "load_any")
-    )
     tier_text = (
         "It reads the answer from a small encoder-decoder, which costs one pass per question "
         "and needs no large language model."
@@ -144,10 +139,10 @@ comparison against the other tiers.
 ## Usage
 
 ```python
-from assay.{loader_module} import {loader}
+from assay import load_model
 from assay.schema import Question
 
-model = {loader}("{repo}", device="cpu")
+model = load_model("{repo}", device="cpu")
 answers = model.answer(
     "My card was charged twice for order A-104.",
     {{

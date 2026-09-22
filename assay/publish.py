@@ -219,10 +219,10 @@ bins, confident errors are answers with p >= 0.9 that are wrong.
 {family_section()}## Usage
 
 ```python
-from assay.model import AssayModel
+from assay import load_model
 from assay.schema import Question
 
-model = AssayModel.from_pretrained("{repo}")
+model = load_model("{repo}")
 answers = model.answer(
     state="My card was charged twice for order A-104.",
     questions={{
