@@ -98,6 +98,10 @@ def stages(config: dict) -> list[Stage]:
     evaluate = evaluations(config)
     python = [sys.executable, "-m"]
     if tier == "decoder":
+        # the compiled trainer picks its checkpoint up by itself; the decoder trainer is asked
+        options = dict(config.get("train", {}))
+        if "resume" not in options and os.path.exists(os.path.join(out, "checkpoint")):
+            options["resume"] = True
         train = Stage(
             "train",
             python
@@ -110,7 +114,7 @@ def stages(config: dict) -> list[Stage]:
                 "--out",
                 out,
             ]
-            + flags(config.get("train", {})),
+            + flags(options),
             [CONFIG_BY_TIER[tier], "assay_head.safetensors"],
         )
         steps = [

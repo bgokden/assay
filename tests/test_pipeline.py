@@ -136,3 +136,13 @@ def test_run_writes_a_manifest_and_a_summary(tmp_path, monkeypatch):
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__]))
+
+
+def test_a_decoder_run_with_a_checkpoint_resumes(tmp_path):
+    config = config_for(tmp_path, "decoder")
+    config["train"].pop("resume")
+    assert "--resume" not in " ".join(stages(config)[0].argv)
+    os.makedirs(os.path.join(config["out"], "checkpoint"), exist_ok=True)
+    assert "--resume" in " ".join(stages(config)[0].argv)
+    config["train"]["resume"] = False  # asked for a fresh run, and that is honoured
+    assert "--resume" not in " ".join(stages(config)[0].argv)
