@@ -72,6 +72,24 @@ alongside its own endpoint: one parser accepts both shapes (`criteria` as well a
 (`choices[name].choice`, `nouls[name].noul`, `scores[name].score`); their response schema is
 not published verbatim, so that grouping is read off their SDK accessors and may need adjusting.
 
+Their Eos-0.8B architecture doc is worth reading against ours. The backbone is a 752M hybrid
+Qwen3.5-0.8B (18 GatedDeltaNet layers, 6 full-attention, hidden 1024) and the decision head is
+1.05M parameters reading hidden states at the candidate positions and at a final query
+position, with a bilinear branch and an MLP branch and separate fp32 layer norms. The answer
+is **not** read from vocabulary logits: their head produces the logits directly, which is the
+pointer-head family rather than our readout. Calibration is one fitted temperature (1.0389),
+as ours is. Their documentation describes no evidence or abstention signal.
+
+Two things follow. Their head-over-candidate-positions design is close to the content-scored
+option term we built and measured as neutral (`--content-term`), and it is the opposite of the
+choice our own measurements support at small scale: the same Qwen3-0.6B weights give 0.704 on
+unseen tasks read out of the vocabulary and 0.553 under a learned reader. Their scores and
+ours are on different suites, so this is a difference in design, not a result: a fair
+comparison needs one common suite, and their weights ship as `backbone/` plus
+`decision_head.safetensors` with their own loading code, so running them in our harness would
+measure their weights under our prompt format rather than their model. Not attempted for that
+reason.
+
 Evaluation resources: `jaredpalmer/kev-suites` (HF dataset; transfer-v4 dev = 764 items from
 mmlu, emotion, sciq, tweet_offensive, qnli, paws + synthetic rule holdouts; Jev numbers
 published on it), `jabr/classifier-benchmark` (78 cases, 8 tasks).
