@@ -83,6 +83,38 @@ scaling.
 | compiled + late interaction (MaxSim option tokens x state tokens), 3 epochs | 0.668 / 0.442 / 0.037 | 0.606 / 0.494 / 0.061 | **0.542 / 0.572 / 0.095** |
 | conditioned + late interaction, 2 epochs | 0.678 / 0.417 / 0.031 | 0.616 / 0.471 / 0.038 | 0.537 / 0.583 / 0.127 |
 
+#### Closing the encoder tier (2026-09-22 evening)
+
+Four attempts to push the tier past 0.606 on unseen tasks, all on the same data and splits:
+
+| attempt | seen (dev) | unseen (holdout) | transfer-v4 |
+|---|---|---|---|
+| **compiled + late interaction, 105k items, 3 epochs** | **0.668** | **0.606** | 0.542 |
+| joint reader: instruction and option tokens self-attend, 3 layers, cross-attend into the state | 0.617 | 0.576 | 0.516 |
+| the same reader on 1.2M teacher-labelled items mixed into the task data, 1 epoch | 0.582 | 0.563 | 0.513 |
+| two-stage: pretrain on the 1.2M, then 3 epochs on the task data | 0.655 | 0.542 | 0.499 |
+| 0.6B decoder features (layer 16 of 28, LoRA r=16) instead of the encoder | 0.594 | 0.553 | 0.548 |
+| *cross-encoder, one pass per option (ceiling probe for this backbone)* | *0.670* | *0.619* | *0.527* |
+
+None of the levers helped. Reader capacity is not the limit: full joint attention (the
+cross-encoder) buys 1.3 points over a bilinear score plus MaxSim, and a deeper reader in
+between is worse than both. Data is not the limit either: 12x more teacher-labelled items
+cost 4 points mixed and 6 points staged, and the per-source breakdown shows why - the rubric
+bank is all single-text judgements, so pairwise tasks decay (medical_questions_pairs 0.740
+-> 0.485, scitail 0.765 -> 0.635) while single-text tasks hold. The two-stage run fits seen
+tasks (dev 0.655) and loses unseen ones, with the fitted temperature rising to 1.58.
+
+The decisive comparison is the 0.6B backbone used two ways on identical data: 0.704 on unseen
+tasks when its own next-token distribution is the readout (`assay-0.6b`), 0.553 when the same
+weights are a feature extractor under a learned reader. For this task family, reading the
+answer out of a language model beats learning a head on top of it, and the encoder tier's
+value is cost, not accuracy: 30 ms per state and 3 ms for six decisions on a CPU.
+
+Tier closed at `Berk/assay-compiled-base` (holdout 0.606). Anyone resuming it should change
+the backbone, not the reader: a fully fine-tuned bidirectional encoder that already does
+pairwise inference (an NLI-pretrained DeBERTa or ModernBERT-large with real fine-tuning
+rather than MLM weights), or accept the small decoder instead.
+
 Verdict (2026-09-22 morning): the late-interaction term is what the compiled reader was
 missing. With it the compiled tier is 1.3 points behind the cross-encoder on unseen tasks
 and ahead of it on the transfer suite (SciQ 0.23 -> 0.76, deadline 0.30 -> 0.63: option text
