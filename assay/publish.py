@@ -31,6 +31,46 @@ def metrics_row(name: str, path: str) -> str | None:
     )
 
 
+def abstention_section(run: str) -> str:
+    """Model-card paragraph on the conformal thresholds, when the run has them."""
+    path = os.path.join(run, "conformal-eval.json")
+    conf_path = os.path.join(run, "conformal.json")
+    if not (os.path.exists(path) and os.path.exists(conf_path)):
+        return ""
+    with open(conf_path) as f:
+        conf = json.load(f)
+    with open(path) as f:
+        ev = json.load(f)
+    rows = []
+    for split, name in (("holdout", "unseen tasks"), ("transfer-v4", "transfer suite")):
+        for qtype, v in ev.get(split, {}).items():
+            act = (
+                f"{v['act_rate']:.0%} / {v['act_error']:.1%}"
+                if v["act_rate"] > 0
+                else "no threshold"
+            )
+            rows.append(
+                f"| {name} | {qtype} | {v['coverage']:.2f} | {v['mean_set_size']:.2f} | {act} |"
+            )
+    table = "\n".join(rows)
+    return f"""## Abstention
+
+`conformal.json` holds per-question-type thresholds fitted on the seen-task calibration split
+(alpha {conf["alpha"]}, delta {conf["delta"]}): a prediction-set threshold with coverage at least
+1 - alpha and an act threshold on the top probability whose acted-on error rate is at most alpha
+at confidence 1 - delta, both on inputs distributed like the calibration split. `assay.server`
+returns them as `act` and `set` on every answer. How they carry over to other tasks:
+
+| split | type | coverage | set size | act rate / error among acted |
+|---|---|---|---|---|
+{table}
+
+Score questions get prediction sets but usually no act threshold, because exact-level accuracy
+is the wrong error notion for ordinal answers. Refit on your own labelled data with
+`python -m assay.conformal` for a guarantee about your distribution.
+"""
+
+
 def write_model_card(run: str, repo: str, base: str, out_path: str, merged: bool = True) -> None:
     with open(os.path.join(run, "train_args.json")) as f:
         targs = json.load(f)
@@ -61,7 +101,11 @@ def write_model_card(run: str, repo: str, base: str, out_path: str, merged: bool
         if row:
             rows.append(row)
     table = "\n".join(
-        ["| split | n | accuracy | Brier | NLL | ECE | confident errors |", "|---|---|---|---|---|---|---|"] + rows
+        [
+            "| split | n | accuracy | Brier | NLL | ECE | confident errors |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        + rows
     )
     by_source = ""
     path = os.path.join(run, "eval-transfer-v4-scaled.json")
@@ -70,14 +114,21 @@ def write_model_card(run: str, repo: str, base: str, out_path: str, merged: bool
             groups = json.load(f)["by_source"]
         lines = ["| transfer-v4 source | n | accuracy | Brier | ECE |", "|---|---|---|---|---|"]
         for name, o in groups.items():
-            lines.append(f"| {name} | {o['count']} | {o['accuracy']:.3f} | {o['brier']:.3f} | {o['ece']:.3f} |")
+            lines.append(
+                f"| {name} | {o['count']} | {o['accuracy']:.3f} | {o['brier']:.3f} | {o['ece']:.3f} |"
+            )
         by_source = "\n".join(lines)
     latency = ""
     path = os.path.join(run, "latency.txt")
     if os.path.exists(path):
         with open(path) as f:
-            latency = "Latency on one RTX 5090 (bf16, transformers, packed questions over one state versus separate requests):\n\n```\n" + f.read().strip() + "\n```\n"
+            latency = (
+                "Latency on one RTX 5090 (bf16, transformers, packed questions over one state versus separate requests):\n\n```\n"
+                + f.read().strip()
+                + "\n```\n"
+            )
     temperature = calibration.get("temperature", 1.0)
+    abstention = abstention_section(run)
     card = f"""---
 license: apache-2.0
 base_model: {base}
@@ -92,7 +143,7 @@ language:
   - en
 ---
 
-# {repo.split('/')[-1]}
+# {repo.split("/")[-1]}
 
 Calibrated typed decisions from one forward pass. Send a state and named typed questions
 (`bool` yes/no, `choice` over 2..255 described options, `score` over 2..10 ordered levels);
@@ -103,9 +154,9 @@ Code, server and training recipe: https://github.com/bgokden/assay
 
 ## How it is built
 
-- Backbone `{base}` with a LoRA adapter (r={targs['lora_r']}, alpha={targs['lora_alpha']},
-  lr={targs['lr']}, {targs['epochs']} epoch, batch {targs['batch_size']} x {targs.get('grad_accum', 1)}
-  accumulation{', 4-bit base (QLoRA)' if quant else ''}); {weights_line} {load_line}
+- Backbone `{base}` with a LoRA adapter (r={targs["lora_r"]}, alpha={targs["lora_alpha"]},
+  lr={targs["lr"]}, {targs["epochs"]} epoch, batch {targs["batch_size"]} x {targs.get("grad_accum", 1)}
+  accumulation{", 4-bit base (QLoRA)" if quant else ""}); {weights_line} {load_line}
 - The answer is read from the model's own next-token logits over option label tokens at a
   single decision position, so the base model's zero-shot competence is the starting point.
 - Questions are isolated branches over a shared state (block attention mask, restarted
@@ -133,6 +184,7 @@ bins, confident errors are answers with p >= 0.9 that are wrong.
 {by_source}
 
 {latency}
+{abstention}
 ## Usage
 
 ```python
@@ -178,17 +230,43 @@ Assay is not affiliated with or endorsed by either.
         f.write(card)
 
 
+def update_card_and_thresholds(run: str, repo: str, base: str, merged: bool, dry_run: bool) -> None:
+    staging = os.path.join(run, "hub-card")
+    if os.path.exists(staging):
+        shutil.rmtree(staging)
+    os.makedirs(staging)
+    write_model_card(run, repo, base, os.path.join(staging, "README.md"), merged=merged)
+    for fn in ("conformal.json", "conformal-eval.json"):
+        if os.path.exists(os.path.join(run, fn)):
+            shutil.copy(os.path.join(run, fn), os.path.join(staging, fn))
+    print(f"staged {staging}: {sorted(os.listdir(staging))}")
+    if dry_run:
+        return
+    HfApi().upload_folder(folder_path=staging, repo_id=repo, repo_type="model")
+    print(f"updated https://huggingface.co/{repo}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", required=True)
     ap.add_argument("--repo", required=True)
     ap.add_argument("--no-merge", action="store_true")
     ap.add_argument("--dry-run", action="store_true", help="prepare the folder, do not upload")
+    ap.add_argument(
+        "--card-only",
+        action="store_true",
+        help="upload only the model card and the conformal files to an existing repository",
+    )
     args = ap.parse_args()
 
     with open(os.path.join(args.run, CONFIG_FILE)) as f:
         config = json.load(f)
     base = config["base_model_id"]
+    if args.card_only:
+        update_card_and_thresholds(
+            args.run, args.repo, base, merged=not args.no_merge, dry_run=args.dry_run
+        )
+        return
     staging = os.path.join(args.run, "hub")
     if os.path.exists(staging):
         shutil.rmtree(staging)
@@ -212,9 +290,15 @@ def main() -> None:
     with open(os.path.join(staging, CONFIG_FILE), "w") as f:
         json.dump(hub_config, f, indent=2)
     for fn in os.listdir(args.run):
-        if fn.startswith("eval-") and fn.endswith(".json") or fn in ("calibration.json", "train_args.json", "train_log.jsonl", "conformal.json"):
+        if (
+            fn.startswith("eval-")
+            and fn.endswith(".json")
+            or fn in ("calibration.json", "train_args.json", "train_log.jsonl", "conformal.json")
+        ):
             shutil.copy(os.path.join(args.run, fn), os.path.join(staging, fn))
-    write_model_card(args.run, args.repo, base, os.path.join(staging, "README.md"), merged=not args.no_merge)
+    write_model_card(
+        args.run, args.repo, base, os.path.join(staging, "README.md"), merged=not args.no_merge
+    )
     print(f"staged {staging}: {sorted(os.listdir(staging))}")
     if args.dry_run:
         return

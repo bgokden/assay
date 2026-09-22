@@ -38,9 +38,16 @@ class DecideRequest(BaseModel):
     questions: dict[str, dict[str, Any]] = Field(min_length=1)
 
 
-def load_conformal(model_dir: str) -> dict[str, Any] | None:
-    path = os.path.join(model_dir, CONFORMAL_FILE)
-    if not os.path.isdir(model_dir) or not os.path.exists(path):
+def load_conformal(model: str) -> dict[str, Any] | None:
+    """Thresholds from a model directory or a Hub repository, when it has them."""
+    if model.startswith("base:"):
+        return None
+    if not os.path.isdir(model):
+        from huggingface_hub import snapshot_download
+
+        model = snapshot_download(model)
+    path = os.path.join(model, CONFORMAL_FILE)
+    if not os.path.exists(path):
         return None
     with open(path) as f:
         return json.load(f)
