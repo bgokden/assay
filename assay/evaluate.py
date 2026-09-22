@@ -14,12 +14,11 @@ from collections.abc import Iterable
 
 import torch
 
-from assay.compiled import CONFIG_FILE as COMPILED_CONFIG_FILE
 from assay.encoding import Packed, encode, identity_order
 from assay.metrics import Scored, reliability_table, summarize, summarize_by, write_scored
 from assay.model import AssayModel
 from assay.records import Record, read_records
-from assay.seq2seq import CONFIG_FILE as SEQ2SEQ_CONFIG_FILE
+from assay.tiers import tier_of
 
 
 def load_model(
@@ -44,11 +43,12 @@ def load_model(
         from huggingface_hub import snapshot_download
 
         path = snapshot_download(spec)
-    if os.path.exists(os.path.join(path, SEQ2SEQ_CONFIG_FILE)):
+    tier = tier_of(path)
+    if tier == "seq2seq":
         from assay.seq2seq import Seq2SeqModel
 
         return Seq2SeqModel.from_pretrained(path, device=device)
-    if os.path.exists(os.path.join(path, COMPILED_CONFIG_FILE)):
+    if tier == "encoder":
         from assay.compiled import load_any
 
         return load_any(path, device=device)

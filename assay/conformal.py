@@ -30,8 +30,8 @@ import numpy as np
 from assay.calibrate import CALIBRATION_SCORED, rescale
 from assay.evaluate import scored_path
 from assay.metrics import Scored, read_scored
-from assay.model import CONFIG_FILE
 from assay.schema import Question
+from assay.tiers import temperature_of
 
 CONFORMAL_FILE = "conformal.json"
 TYPES = ("bool", "choice", "score")
@@ -146,15 +146,6 @@ def format_evaluation(name: str, ev: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def load_temperature(model_dir: str) -> float:
-    for name in (CONFIG_FILE, "assay_compiled_config.json"):
-        path = os.path.join(model_dir, name)
-        if os.path.exists(path):
-            with open(path) as f:
-                return float(json.load(f).get("temperature", 1.0))
-    raise FileNotFoundError(f"no model config in {model_dir}")
-
-
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True, help="model directory with calibration.scored.jsonl")
@@ -169,7 +160,7 @@ def main() -> None:
         help="eval names with saved predictions",
     )
     args = ap.parse_args()
-    temperature = load_temperature(args.model)
+    temperature = temperature_of(args.model)
     calibration = rescale(read_scored(os.path.join(args.model, CALIBRATION_SCORED)), temperature)
     thresholds = fit(calibration, args.alpha, args.delta)
     thresholds["temperature"] = temperature

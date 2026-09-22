@@ -17,9 +17,10 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedTokenize
 from assay.encoding import Batch, Packed, collate, encode, identity_order
 from assay.labels import LabelAlphabet
 from assay.schema import Answer, Question, make_answer
+from assay.tiers import CONFIG_FILES, WEIGHTS_FILES
 
-HEAD_FILE = "assay_head.safetensors"
-CONFIG_FILE = "assay_config.json"
+HEAD_FILE = WEIGHTS_FILES["decoder"]
+CONFIG_FILE = CONFIG_FILES["decoder"]
 
 
 @dataclasses.dataclass

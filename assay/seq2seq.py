@@ -28,9 +28,10 @@ from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 from assay.encoding import render_question
 from assay.labels import LabelAlphabet
 from assay.schema import Answer, Question, make_answer, render_state
+from assay.tiers import CONFIG_FILES, WEIGHTS_FILES
 
-CONFIG_FILE = "assay_seq2seq_config.json"
-WEIGHTS_FILE = "assay_seq2seq.safetensors"
+CONFIG_FILE = CONFIG_FILES["seq2seq"]
+WEIGHTS_FILE = WEIGHTS_FILES["seq2seq"]
 
 
 class Seq2SeqModel(nn.Module):

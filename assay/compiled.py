@@ -24,9 +24,10 @@ from torch import nn
 from transformers import AutoModel, AutoTokenizer
 
 from assay.schema import Answer, Question, make_answer, render_state
+from assay.tiers import CONFIG_FILES, WEIGHTS_FILES
 
-CONFIG_FILE = "assay_compiled_config.json"
-WEIGHTS_FILE = "assay_compiled.safetensors"
+CONFIG_FILE = CONFIG_FILES["encoder"]
+WEIGHTS_FILE = WEIGHTS_FILES["encoder"]
 
 
 def option_texts(q: Question, with_instructions: bool = False) -> list[str]:

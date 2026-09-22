@@ -20,15 +20,11 @@ import time
 from dataclasses import dataclass, field
 
 from assay.conformal import CONFORMAL_FILE
+from assay.tiers import CONFIG_FILES as CONFIG_BY_TIER
+from assay.tiers import TIERS
 
-TIERS = ("decoder", "encoder", "seq2seq")
 REQUIRED = ("name", "tier", "base_model", "data", "out")
 DATA_FILES = ("train.jsonl", "dev.jsonl", "calibration.jsonl")
-CONFIG_BY_TIER = {
-    "decoder": "assay_config.json",
-    "encoder": "assay_compiled_config.json",
-    "seq2seq": "assay_seq2seq_config.json",
-}
 
 
 @dataclass

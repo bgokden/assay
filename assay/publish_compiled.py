@@ -16,10 +16,8 @@ import shutil
 
 from huggingface_hub import HfApi
 
-from assay.compiled import CONFIG_FILE, WEIGHTS_FILE
 from assay.publish import family_section, metrics_row
-from assay.seq2seq import CONFIG_FILE as SEQ2SEQ_CONFIG_FILE
-from assay.seq2seq import WEIGHTS_FILE as SEQ2SEQ_WEIGHTS_FILE
+from assay.tiers import CONFIG_FILES, WEIGHTS_FILES, config_of, tier_of
 
 SHARED_FILES = (
     "config.json",
@@ -28,23 +26,11 @@ SHARED_FILES = (
     "tokenizer_config.json",
     "special_tokens_map.json",
 )
-TIER_FILES = {
-    "encoder": (CONFIG_FILE, WEIGHTS_FILE),
-    "seq2seq": (SEQ2SEQ_CONFIG_FILE, SEQ2SEQ_WEIGHTS_FILE),
-}
-
-
-def tier_of(run: str) -> str:
-    """Which small tier this run directory holds, by the config file its trainer wrote."""
-    if os.path.exists(os.path.join(run, SEQ2SEQ_CONFIG_FILE)):
-        return "seq2seq"
-    if os.path.exists(os.path.join(run, CONFIG_FILE)):
-        return "encoder"
-    raise ValueError(f"{run} has neither {CONFIG_FILE} nor {SEQ2SEQ_CONFIG_FILE}")
 
 
 def model_files(run: str) -> tuple[str, ...]:
-    return SHARED_FILES + TIER_FILES[tier_of(run)]
+    tier = tier_of(run)
+    return SHARED_FILES + (CONFIG_FILES[tier], WEIGHTS_FILES[tier])
 
 
 ARCH_TEXT = {
@@ -80,8 +66,7 @@ ARCH_TEXT = {
 
 def write_card(run: str, repo: str, out_path: str) -> None:
     tier = tier_of(run)
-    with open(os.path.join(run, TIER_FILES[tier][0])) as f:
-        config = json.load(f)
+    config = config_of(run)
     with open(os.path.join(run, "train_args.json")) as f:
         targs = json.load(f)
     arch = config.get("arch", "compiled")
