@@ -217,7 +217,7 @@ Fifty-five public classification, inference, reading-comprehension and preferenc
 rendered as typed questions with described options, plus a synthetic policy-application
 generator (see `assay/data/tasks.py` in the repository for the rubrics). Each dataset keeps
 its own licence; the per-dataset list is in
-[docs/datasets.md](https://github.com/bgokden/assay/blob/master/docs/datasets.md). Several
+[docs/datasets.md](https://github.com/bgokden/assay/blob/main/docs/datasets.md). Several
 sources carry non-commercial or research-only terms; check them before commercial use.
 
 ## Relationship to other work

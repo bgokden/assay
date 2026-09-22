@@ -137,7 +137,7 @@ Trained with `assay.train_compiled` ({targs.get("epochs")} epochs, lr {targs.get
 {targs.get("head_lr")}, batch {targs.get("batch_size")}) on the Assay data (55 public datasets
 rendered as typed questions, synthetic policy and date cases, and 40k generic questions labelled
 by assay-27b). Each dataset keeps its own licence; the list is in
-[docs/datasets.md](https://github.com/bgokden/assay/blob/master/docs/datasets.md).
+[docs/datasets.md](https://github.com/bgokden/assay/blob/main/docs/datasets.md).
 
 ## Limitations
 
