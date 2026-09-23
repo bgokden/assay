@@ -8,11 +8,13 @@
   :root {
     --bg: #0f1115; --panel: #171a21; --line: #262b36; --text: #e6e9ef;
     --dim: #9aa4b5; --accent: #6ea8fe; --good: #4ec9a5; --warn: #e0a95f; --bad: #e06c75;
+    --human: #8b7cf0; --human-soft: #2a2545;
   }
   @media (prefers-color-scheme: light) {
     :root {
       --bg: #f6f7f9; --panel: #ffffff; --line: #dde1e8; --text: #1b1f27;
       --dim: #5d6673; --accent: #2f6fd0; --good: #1f9d78; --warn: #a9701f; --bad: #c0392b;
+      --human: #6355d8; --human-soft: #ece9fc;
     }
   }
   * { box-sizing: border-box; }
@@ -43,18 +45,26 @@
   .conditions .policy { font-family: ui-monospace, monospace; font-size: 12px; }
   .conditions .foot { margin: 10px 0 0; font-size: 12px; color: var(--dim); }
 
-  .turn { margin: 14px 0; display: flex; }
-  .turn.user { justify-content: flex-end; }
+  .turn { margin: 16px 0; display: flex; gap: 10px; align-items: flex-start; }
+  .turn.user { flex-direction: row-reverse; }
+  .col { display: flex; flex-direction: column; max-width: 82%; }
+  .turn.user .col { align-items: flex-end; }
+  .avatar {
+    flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid;
+    place-items: center; font-size: 12px; font-weight: 700; color: #fff; margin-top: 18px;
+  }
+  .avatar.human { background: var(--human); }
+  .avatar.bot { background: var(--accent); }
+  .name { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+  .name .sub { font-weight: 400; color: var(--dim); font-size: 11px; margin-left: 5px; }
   .bubble {
-    max-width: 82%; border: 1px solid var(--line); border-radius: 12px; padding: 11px 14px;
+    border: 1px solid var(--line); border-radius: 12px; padding: 11px 14px;
     background: var(--panel);
   }
-  .turn.user .bubble { background: var(--accent); color: #fff; border-color: transparent; }
-  .who {
-    font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.6px;
-    margin-bottom: 6px;
+  .turn.user .bubble {
+    background: var(--human-soft); border-color: var(--human); border-radius: 12px 12px 2px 12px;
   }
-  .turn.user .who { color: rgba(255, 255, 255, 0.75); }
+  .turn.agent .bubble { border-radius: 12px 12px 12px 2px; }
   .reply { font-size: 14px; margin: 0 0 10px; }
   .outcome {
     display: inline-flex; align-items: center; gap: 8px; font-family: ui-monospace, monospace;
@@ -85,6 +95,11 @@
   .meta span { border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; color: var(--dim); }
   .meta span.ms { color: var(--good); border-color: var(--good); }
 
+  /* so the composer starts near the bottom instead of under the conditions, and the page
+     does not lurch downwards as the first turns arrive */
+  #transcript {
+    min-height: 58vh; display: flex; flex-direction: column; justify-content: flex-end;
+  }
   .composer { display: flex; gap: 8px; margin-top: 20px; }
   .composer input {
     flex: 1; background: var(--panel); color: var(--text); border: 1px solid var(--line);
@@ -99,6 +114,8 @@
     background: none; border: 1px solid var(--line); color: var(--dim);
     border-radius: 6px; padding: 5px 10px; cursor: pointer; font-size: 12px;
   }
+  .composer input.typing { border-color: var(--human); }
+  .composer input.typing::after { content: "|"; }
   .tools { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
   .error { color: var(--bad); font-size: 13px; margin-top: 10px; }
 </style>
@@ -121,7 +138,7 @@
   <div class="error" id="error"></div>
 
   <div class="composer">
-    <input id="message" placeholder="Type what the customer says..." autocomplete="off">
+    <input id="message" placeholder="Type as Mara..." autocomplete="off">
     <button class="action" id="send" onclick="send()">Send</button>
   </div>
   <div class="tools">
@@ -152,7 +169,7 @@ const REPLIES = {
 const SCRIPT = [
   "I was charged twice for order A-104, that is 240 euros.",
   "Actually it is the whole annual contract, 2,400 euros.",
-  "Separately, the dashboard has been down for the whole team since this morning."
+  "Can you confirm someone will look at it today?"
 ];
 
 let agentName = null;
@@ -183,10 +200,37 @@ function escape(s) {
   return String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 }
 
+const HUMAN = {initial: "M", name: "Mara", role: "customer, Acme Ltd"};
+
 function addUser(text) {
   document.getElementById("transcript").insertAdjacentHTML("beforeend",
-    `<div class="turn user"><div class="bubble">
-       <div class="who">customer</div>${escape(text)}</div></div>`);
+    `<div class="turn user">
+       <div class="avatar human">${HUMAN.initial}</div>
+       <div class="col">
+         <div class="name">${HUMAN.name}<span class="sub">${HUMAN.role}</span></div>
+         <div class="bubble">${escape(text)}</div>
+       </div>
+     </div>`);
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
+/** Type into the composer a character at a time, the way the person would. */
+async function typeInto(text, perChar = 34) {
+  const input = document.getElementById("message");
+  input.focus();
+  input.classList.add("typing");
+  input.value = "";
+  for (const ch of text) {
+    input.value += ch;
+    await new Promise(r => setTimeout(r, perChar));
+  }
+  input.classList.remove("typing");
+}
+
+/** Move what was typed into the transcript, without deciding yet. */
+function commit(text) {
+  document.getElementById("message").value = "";
+  showCustomer(text);
 }
 
 function addAgent(result, ms) {
@@ -201,9 +245,13 @@ function addAgent(result, ms) {
       <div class="value">${step.probability.toFixed(2)}</div>
     </div>`).join("");
   const usage = result.usage || {};
+  const served = document.getElementById("model").textContent.split(" ")[0] || "assay";
   document.getElementById("transcript").insertAdjacentHTML("beforeend",
-    `<div class="turn agent"><div class="bubble">
-       <div class="who">assay</div>
+    `<div class="turn agent">
+       <div class="avatar bot">A</div>
+       <div class="col">
+       <div class="name">Assay<span class="sub">${escape(served)}</span></div>
+       <div class="bubble">
        <p class="reply">${escape(REPLIES[result.outcome] || result.outcome)}</p>
        <div class="outcome${held ? " hold" : ""}">${escape(result.outcome)}
          &rarr; ${escape(result.action)}${args}</div>
@@ -214,7 +262,7 @@ function addAgent(result, ms) {
          <span>${usage.forward_passes || 1} forward pass</span>
          <span>path p=${(result.path_probability || 0).toFixed(3)}</span>
        </div>
-     </div></div>`);
+     </div></div></div>`);
   window.scrollTo(0, document.body.scrollHeight);
 }
 
@@ -265,9 +313,14 @@ async function playDemo() {
     await turn("warming up");   // the first request after a restart pays for the CUDA graphs
     reset();
     for (const line of SCRIPT) {
-      await turn(line);
-      await new Promise(r => setTimeout(r, 900));
+      await typeInto(line);
+      await new Promise(r => setTimeout(r, 350));
+      commit(line);
+      await new Promise(r => setTimeout(r, 250));
+      await decideTurn(line);
+      await new Promise(r => setTimeout(r, 1100));
     }
+    document.getElementById("message").blur();
   });
 }
 
