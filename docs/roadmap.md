@@ -339,6 +339,43 @@ request at a time, while our own measurements show 24 questions cost 56 ms batch
 needs no new dependency. Continuous batching as such is not the lever here: with no decode
 loop there is no head-of-line blocking to avoid, only batch filling and prefix reuse.
 
+### Runtimes: what this workload needs, and which ones give it (surveyed 2026-09-23)
+
+A decision needs two things out of a forward pass: the logits over the option-label tokens at
+the readout position, and the hidden state at that position for the evidence head. Most
+serving stacks are built to return the first and not the second, because generation never
+needs it. That single requirement decides the list.
+
+| runtime | readout | evidence head | packing | state |
+|---|---|---|---|---|
+| transformers | yes | yes | yes, block mask | the reference; calibration is fitted against it |
+| llama.cpp | yes, `n_probs` | yes, `/embeddings --pooling last` | no | implemented and verified to 2.8e-4 |
+| SGLang | yes, `token_ids_logprob` | yes, `return_hidden_states` | no | implemented, never run against a live server |
+| vLLM | yes, with `--max-logprobs` raised | not from a generate instance | no | not implemented, see below |
+| TGI | top-N only (`details.top_tokens`) | not exposed | no | not implemented |
+| MLX | yes, in process | yes, in process | possible, it is a library | not implemented; the obvious next one for Apple hardware |
+| ONNX Runtime, OpenVINO | yes, you choose the graph outputs | yes, same | would need the mask exported | not implemented |
+
+**vLLM** is the notable gap, and the reason is structural rather than a missing flag: it keeps
+separate model runners for generative and pooling models, so one instance returns logprobs and
+a different one returns pooled hidden states. Returning hidden states from a generate request
+is still open work ([#12249](https://github.com/vllm-project/vllm/issues/12249),
+[#24288](https://github.com/vllm-project/vllm/issues/24288),
+[#33118](https://github.com/vllm-project/vllm/issues/33118), and a mean-pool connector in
+[#38565](https://github.com/vllm-project/vllm/pull/38565)). Until one of those lands, serving
+the full decision on vLLM means either two instances -- a generate one for the readout and an
+`--task embed` one with LAST pooling and normalisation off for the evidence head, which doubles
+the weights in memory -- or accepting answers without an evidence score. Neither is attractive
+next to llama.cpp, which does both from one process.
+
+**Packing** is the other axis and only transformers has it: the block mask that isolates
+question branches inside one sequence is our own encoding, not something a server exposes.
+Everywhere else a request is one question, and the saving comes from prefix caching instead.
+That is why the reference runtime stays the fastest option on a GPU (24 questions in 85 ms on
+the 8B) and the others are for where it cannot run.
+
+Not yet measured: llama.cpp's throughput. It is verified correct, not benchmarked.
+
 ### Supporting work
 
 - Dynamic batching in `assay.server`: queue requests, bucket by length, one forward per batch
