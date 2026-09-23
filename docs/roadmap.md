@@ -347,8 +347,13 @@ loop there is no head-of-line blocking to avoid, only batch filling and prefix r
   `return_hidden_states`, evidence head applied client-side, temperature and conformal
   thresholds where they already are. Verify that the returned hidden state is the post-final-norm
   vector our head was trained on before trusting the evidence output.
-- Prefix-state serving for hybrid backbones (snapshot the state's recurrent and KV state,
-  run question suffixes as a batch) so packed multi-question requests work on Qwen3.5/3.8.
+- Prefix-state serving for hybrid backbones: done 2026-09-23 in `assay.prefix`. The state runs
+  once with the cache on, `reorder_cache` fans that cache out to one row per question (every
+  layer type implements it, including the linear-attention layers), and the question blocks run
+  as a batch continuing from it. Verified against the packed path on a dense backbone: 1.8e-6
+  in float32, and bit-identical at the same batch shape. Worth knowing separately: bf16 kernels
+  move a probability by around 1e-2 depending on the batch shape, on both paths, so an
+  equivalence check has to be done in float32.
 - Latency and throughput benchmark per tier, including CPU for the compiled tier.
 - Second seed for the soft-versus-hard target ablation.
 - Known issue, resolved 2026-09-22: the sporadic native segfaults during long GPU runs were
