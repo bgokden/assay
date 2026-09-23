@@ -24,6 +24,7 @@ FAMILY = [
     Model("assay-0.6b", "runs/assay-0.6b-v4", "Qwen3-0.6B-Base", "0.6B"),
     Model("assay-1.7b", "runs/assay-1.7b-v2", "Qwen3-1.7B-Base", "1.7B"),
     Model("assay-4b", "runs/assay-4b-v4", "Qwen3-4B-Base", "4B"),
+    Model("assay-8b", "runs/assay-8b", "Qwen3-8B-Base", "8B"),
     Model("assay-27b", "runs/assay-27b", "Qwen3.8-27B (4-bit)", "27B"),
     Model("assay-compiled-base", "runs/compiled-late-gte-base", "gte-modernbert-base", "149M"),
 ]

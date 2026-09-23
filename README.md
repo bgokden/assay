@@ -8,7 +8,7 @@ and an **evidence** score that says whether the state contains what is needed to
 Every question is evaluated as an isolated branch over the shared state, in a single prefill,
 so a request with twenty questions costs about the same as a request with one.
 
-Five models, 149M to 27B, are on the Hub as the
+Six models, 149M to 27B, are on the Hub as the
 [Assay collection](https://huggingface.co/collections/Berk/assay-calibrated-typed-decisions-6ab2fcb2b7eea0b7aaf785ab).
 
 **Documentation:** [models](docs/models.md) (every published model side by side) |
@@ -98,7 +98,8 @@ See `docs/research.md` for the literature and the community landscape this build
 ## Results
 
 Models: [Berk/assay-27b](https://huggingface.co/Berk/assay-27b) (adapter + evidence head over
-a 4-bit Qwen3.8-27B), [Berk/assay-4b](https://huggingface.co/Berk/assay-4b),
+a 4-bit Qwen3.8-27B), [Berk/assay-8b](https://huggingface.co/Berk/assay-8b) (adapter + head),
+[Berk/assay-4b](https://huggingface.co/Berk/assay-4b),
 [Berk/assay-1.7b](https://huggingface.co/Berk/assay-1.7b) and
 [Berk/assay-0.6b](https://huggingface.co/Berk/assay-0.6b) (merged weights, adapter, evidence
 head and model card in each repository). Cells are accuracy / Brier / ECE, single seed.
@@ -111,6 +112,8 @@ head and model card in each repository). Cells are accuracy / Brier / ECE, singl
 | **assay-1.7b** | 0.740 / 0.355 / 0.035 | 0.752 / 0.334 / 0.024 | 0.670 / 0.436 / 0.115 |
 | Qwen3-4B-Base, untrained | 0.640 / 0.452 / 0.032 | 0.740 / 0.356 / 0.042 | 0.707 / 0.383 / 0.051 |
 | **assay-4b** (data v4) | 0.791 / 0.287 / 0.027 | 0.803 / 0.271 / 0.023 | 0.784 / 0.302 / 0.061 |
+| Qwen3-8B-Base, untrained | - | - | 0.721 / 0.366 / 0.067 |
+| **assay-8b** (data v4) | 0.808 / 0.266 / 0.024 | 0.808 / 0.256 / 0.021 | 0.818 / 0.267 / 0.048 |
 | Qwen3.8-27B (4-bit), untrained | - | 0.773 / 0.312 / 0.060 | 0.793 / 0.318 / 0.077 |
 | **assay-27b** | 0.834 / 0.243 / 0.040 | 0.842 / 0.221 / 0.040 | **0.842 / 0.229 / 0.041** |
 
@@ -157,8 +160,10 @@ of its 0.211, after 4.5 hours of QLoRA on one RTX 5090. Per family it is above J
 PAWS and offensive language.
 
 **Latency** (RTX 5090, plain transformers): 4B in bf16, 23 ms for one question, 57 ms for 24
-questions packed over the same state (548 ms as separate requests). 27B in 4-bit, 110 ms for
-one question; hybrid backbones are not packed yet, so 24 questions run as a batch in 750 ms.
+questions packed over the same state (551 ms as separate requests); 8B, 23 ms and 85 ms. The
+27B in 4-bit has a hybrid backbone that cannot pack, so it shares one encoding of the state
+instead (`assay.prefix`): 109 ms for one question, 431 ms for 24 against 2656 ms as separate
+requests.
 
 ## Encoder tier: decisions without a language model
 
