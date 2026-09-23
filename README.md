@@ -239,9 +239,10 @@ and both the readout and the evidence head work (checked against local transform
 `assay.backends.sglang` serves the decoder tier through an SGLang deployment instead of local
 transformers: `/generate` returns `token_ids_logprob` and `return_hidden_states` in one
 request, so the readout and the evidence head both come from one forward pass, and
-RadixAttention reuses a state prefix across separate questions. Check a deployment with
-`verify_against_local` before trusting it - SGLang's response layout is not pinned by a
-published schema.
+RadixAttention reuses a state prefix across separate questions. Launch the server with
+`--enable-return-hidden-states` and check it with `verify_against_local`: run against SGLang
+0.5.9, probabilities agree to 1.2e-2 and evidence to 7.7e-5, which is bf16 rounding rather
+than a runtime difference.
 
 [docs/serving.md](docs/serving.md) is the deployment guide: options, batch tuning, health and
 Prometheus metrics, authentication, a systemd unit, a Dockerfile, and the full API reference.

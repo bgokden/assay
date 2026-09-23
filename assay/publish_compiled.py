@@ -16,7 +16,7 @@ import shutil
 
 from huggingface_hub import HfApi
 
-from assay.compat import normalise_tokenizer_config
+from assay.compat import normalise_saved_model
 from assay.publish import family_section, metrics_row
 from assay.tiers import CONFIG_FILES, WEIGHTS_FILES, config_of, tier_of
 
@@ -207,8 +207,9 @@ def main() -> None:
         ):
             shutil.copy(os.path.join(args.run, fn), os.path.join(staging, fn))
     write_card(args.run, args.repo, os.path.join(staging, "README.md"))
-    if normalise_tokenizer_config(staging):
-        print("rewrote the tokenizer config so transformers 4 can load it too")
+    rewritten = normalise_saved_model(staging)
+    if rewritten:
+        print(f"rewrote {', '.join(rewritten)} so transformers 4 loads this too")
     print(f"staged {staging}: {sorted(os.listdir(staging))}")
     if args.dry_run:
         return

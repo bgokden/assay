@@ -92,6 +92,11 @@ class LlamaCppClient:
         self.alphabet = LabelAlphabet(self.tokenizer)
         self.temperature = float(config.get("temperature", 1.0))
         self.normalize_evidence_input = bool(config.get("normalize_evidence_input", False))
+        if config.get("content_term"):
+            raise ValueError(
+                "this model scores options with a content term, which needs the hidden states "
+                "of the option spans, not just the readout; serve it with assay.server"
+            )
         head = safetensors.torch.load_file(os.path.join(path, HEAD_FILE))
         self.evidence_weight = head["weight"].float().numpy().reshape(-1)
         self.evidence_bias = float(head["bias"].float().numpy().reshape(-1)[0])

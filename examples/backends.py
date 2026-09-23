@@ -18,9 +18,11 @@ llama.cpp needs a GGUF and a server started with the embedding flags:
     llama-server -m assay.gguf --port 8081 -c 4096 \\
         --embeddings --pooling last --embd-normalize -1
 
-SGLang needs a server and nothing else:
+SGLang needs the hidden-states flag, which is not optional here -- the evidence head reads
+them, and a server started without it rejects the request:
 
-    python -m sglang.launch_server --model-path Berk/assay-0.6b --port 30000
+    python -m sglang.launch_server --model-path Berk/assay-0.6b --port 30000 \\
+        --enable-return-hidden-states
 """
 
 import argparse

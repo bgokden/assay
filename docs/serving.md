@@ -15,15 +15,31 @@ encoder-decoder models are all served the same way.
 
 ## A note on transformers versions
 
-transformers 5 renamed the tokenizer config's `additional_special_tokens` to
-`extra_special_tokens` while still writing a list; transformers 4 reads that name as a mapping
-and raises `AttributeError: 'list' object has no attribute 'keys'`. A model published from a
-transformers 5 environment therefore fails to load on 4, which is what SGLang and llama.cpp's
-converter pin, and what most people still run.
+transformers 5 changed three things a saved model carries, and transformers 4 -- what SGLang,
+vLLM and llama.cpp's converter pin, and what most people still run -- reads none of them. The
+published models carry both spellings, and `assay.compat` applies the same fix to anything this
+repository publishes. If you save a model yourself, run it through `assay.compat` before
+serving it anywhere that is not transformers 5.
 
-The published models carry a config both generations load, and `assay.compat` applies the same
-fix to anything this repository publishes. If you save a model yourself and something downstream
-refuses the tokenizer with that error, that is the cause.
+Two of the three fail loudly:
+
+- `additional_special_tokens` became `extra_special_tokens`, still written as a list, and 4
+  reads that name as a mapping: `AttributeError: 'list' object has no attribute 'keys'`.
+- a tokenizer with no concrete class is saved as `TokenizersBackend`, and 4 answers
+  `Tokenizer class TokenizersBackend does not exist`. Its name on 4 is `PreTrainedTokenizerFast`.
+
+The third fails silently, and it is the one to know about. The RoPE settings moved into a
+`rope_parameters` block and the top-level `rope_theta` stopped being written. transformers 4
+reads the old name, does not find it, and falls back to the model class's default -- for Qwen3
+that is 10000 against a true 1000000, a hundredfold error in the RoPE base. Nothing warns. The
+server starts, the model answers, and the answers are wrong: measured on assay-0.6b through
+SGLang, the readout hidden state fell to a cosine of 0.9940 against the reference and
+probabilities moved by up to 7.1e-2 -- enough to cross a decision threshold, small enough to
+look like rounding if you are not comparing against anything.
+
+That is the case for `verify_against_local` being routine rather than ceremonial. It is also
+why the evidence score is a weak check on its own: it is a sigmoid that usually sits near 1.0,
+so it agreed to 2.7e-3 while the hidden state under it was visibly wrong.
 
 ## A page for trying it
 
@@ -157,8 +173,36 @@ Mount a volume at `/models` so the weights are downloaded once, and pass `--gpus
 `assay.backends.sglang` runs the decoder tier on an SGLang deployment instead of local
 transformers: one `/generate` call returns both the option-label logprobs and the hidden state,
 so the readout and the evidence head come from the same forward pass, and RadixAttention reuses
-a state prefix across questions. Check a deployment with `verify_against_local` before trusting
-it -- SGLang's response layout is not pinned by a published schema.
+a state prefix across questions.
+
+```bash
+python -m sglang.launch_server --model-path Berk/assay-4b --port 30000 \
+    --enable-return-hidden-states
+```
+
+```python
+from assay.backends.sglang import SGLangClient, verify_against_local
+
+client = SGLangClient("http://127.0.0.1:30000", "Berk/assay-4b")
+client.answer(state, questions)
+verify_against_local("http://127.0.0.1:30000", "Berk/assay-4b", state, questions)
+```
+
+`--enable-return-hidden-states` is required at launch and is not in the documented request
+fields: without it the server rejects a request that asks for them and the evidence head has no
+input. Pass `evidence=False` to the client to answer from the readout alone.
+
+Checked against local transformers on assay-0.6b (SGLang 0.5.9): probabilities agree to 1.2e-2
+and evidence to 7.7e-5. The probability figure is bf16 rounding rather than a runtime
+difference -- our own bf16 path differs from the same fp32 reference by 1.4e-2 -- and it is
+worst on a near-uniform distribution, where a small logit shift moves the most probability.
+
+Two things to know. The prompt is sent as token ids, not text: rendering it back to a string
+lets the server retokenize, which merges the newline pair at the state boundary into a single
+token and moves probabilities by up to 6.1e-2. And the number of hidden-state rows returned is
+not the number of prompt tokens -- RadixAttention recomputes only the tail of a cached prefix,
+so the same prompt came back as 54 rows cold and 1 row warm. The readout is the last row of the
+last sequence either way.
 
 ## Serving through llama.cpp
 

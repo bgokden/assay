@@ -350,7 +350,7 @@ needs it. That single requirement decides the list.
 |---|---|---|---|---|
 | transformers | yes | yes | yes, block mask | the reference; calibration is fitted against it |
 | llama.cpp | yes, `n_probs` | yes, `/embeddings --pooling last` | no | implemented and verified to 2.8e-4 |
-| SGLang | yes, `token_ids_logprob` | yes, `return_hidden_states` | no | implemented, never run against a live server |
+| SGLang | yes, `token_ids_logprob` | yes, `return_hidden_states` | no | implemented and verified to 1.2e-2, bf16 noise |
 | vLLM | yes, with `--max-logprobs` raised | not from a generate instance | no | not implemented, see below |
 | TGI | top-N only (`details.top_tokens`) | not exposed | no | not implemented |
 | MLX | yes, in process | yes, in process | possible, it is a library | not implemented; the obvious next one for Apple hardware |

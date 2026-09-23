@@ -6,13 +6,24 @@ forward pass: the option-label logits are the readout, and the hidden state at t
 position feeds the evidence head, which runs here rather than in the server. Temperature and
 conformal thresholds also stay client-side, so calibration is unchanged.
 
-    python -m sglang.launch_server --model-path Berk/assay-4b --port 30000
+    python -m sglang.launch_server --model-path Berk/assay-4b --port 30000 \\
+        --enable-return-hidden-states
     client = SGLangClient("http://127.0.0.1:30000", "Berk/assay-4b")
     client.answer(state, questions)
 
+`--enable-return-hidden-states` is required at launch: without it the server rejects a request
+that asks for them, and the evidence head has no input. Pass `evidence=False` to answer from
+the readout alone against a server started without it.
+
 Questions about one state are sent as separate requests that share a prompt prefix, which
 SGLang's RadixAttention caches, so the state is encoded once across them - the same saving our
-own packing gives inside a single request, and it also works across requests.
+own packing gives inside a single request, and it also works across requests. Prompts are sent
+as token ids rather than text, so the sequence is the one the model was trained on.
+
+Verified against local transformers on assay-0.6b (SGLang 0.5.9): probabilities agree to
+1.2e-2 and evidence to 7.7e-5. The probability figure is bf16 rounding rather than a runtime
+difference -- our own bf16 path differs from the same fp32 reference by 1.4e-2 -- and it is
+worst on a near-uniform distribution, where a small logit shift moves the most probability.
 
 The request fields are documented; the response layout is read defensively because it is not
 pinned by a published schema. `verify_against_local` checks a live server against the local
@@ -30,10 +41,10 @@ import requests
 import safetensors.torch
 from transformers import AutoTokenizer
 
-from assay.encoding import render_question
+from assay.encoding import encode, identity_order
 from assay.labels import LabelAlphabet
 from assay.model import CONFIG_FILE, HEAD_FILE
-from assay.schema import Answer, Question, make_answer, render_state
+from assay.schema import Answer, Question, make_answer
 
 
 def _resolve(model: str) -> str:
@@ -47,6 +58,22 @@ def _resolve(model: str) -> str:
 def _first(payload: Any) -> Any:
     """SGLang returns a dict for one prompt and a list for several."""
     return payload[0] if isinstance(payload, list) else payload
+
+
+def _readout_vector(hidden: Any) -> np.ndarray:
+    """The hidden state at the readout position, whatever nesting the server used.
+
+    /generate returns a row per position it actually computed, inside an entry per sequence --
+    which is not the same as a row per prompt token. RadixAttention recomputes only the tail of
+    a cached prefix, so the same 25-token prompt comes back as 25 rows cold and 1 row warm. The
+    last row of the last sequence is the readout position in both cases.
+    """
+    array = np.asarray(hidden, dtype=np.float64)
+    if array.ndim == 0 or not array.size:
+        raise ValueError("server returned an empty hidden state")
+    while array.ndim > 1:
+        array = array[-1]
+    return array
 
 
 def _logprob_map(entries: Any) -> dict[int, float]:
@@ -65,10 +92,18 @@ def _logprob_map(entries: Any) -> dict[int, float]:
 
 
 class SGLangClient:
-    def __init__(self, url: str, model: str, timeout: float = 60.0, max_state_tokens: int = 2048):
+    def __init__(
+        self,
+        url: str,
+        model: str,
+        timeout: float = 60.0,
+        max_state_tokens: int = 2048,
+        evidence: bool = True,
+    ) -> None:
         self.url = url.rstrip("/")
         self.timeout = timeout
         self.max_state_tokens = max_state_tokens
+        self.want_evidence = evidence
         path = _resolve(model)
         with open(os.path.join(path, CONFIG_FILE)) as f:
             config = json.load(f)
@@ -81,40 +116,56 @@ class SGLangClient:
         self.alphabet = LabelAlphabet(self.tokenizer)
         self.temperature = float(config.get("temperature", 1.0))
         self.normalize_evidence_input = bool(config.get("normalize_evidence_input", False))
+        if config.get("content_term"):
+            raise ValueError(
+                "this model scores options with a content term, which needs the hidden states "
+                "of the option spans, not just the readout; serve it with assay.server"
+            )
         head = safetensors.torch.load_file(os.path.join(path, HEAD_FILE))
         self.evidence_weight = head["weight"].float().numpy().reshape(-1)
         self.evidence_bias = float(head["bias"].float().numpy().reshape(-1)[0])
         self.session = requests.Session()
 
-    def prompt(self, state: Any, question: Question) -> str:
-        """The same text `assay.encoding` builds, so the readout position is identical."""
-        text = render_state(state) + "\n"
-        ids = self.tokenizer.encode(text, add_special_tokens=False)[: self.max_state_tokens]
-        return self.tokenizer.decode(ids) + render_question(
-            question, self.alphabet, list(range(len(question.keys)))
+    def tokens(self, state: Any, question: Question) -> tuple[list[int], list[int]]:
+        """The token ids of one state-and-question sequence, and its option label ids.
+
+        This is `assay.encoding.encode` for a single question, so the readout position is the
+        last token and the prompt is identical to the one transformers sees. The ids are sent
+        as ids for that reason: rendering the prompt to a string and letting the server
+        retokenize merges the newline pair at the state boundary into one token, which moves
+        probabilities by up to 6e-2 -- a wrong answer that looks like a rounding difference.
+        """
+        packed = encode(
+            self.tokenizer,
+            self.alphabet,
+            state,
+            [question],
+            orders=[identity_order(question)],
+            max_state_tokens=self.max_state_tokens,
         )
+        return packed.input_ids, packed.questions[0].option_token_ids
 
-    def option_ids(self, question: Question) -> list[int]:
-        if question.type == "bool":
-            return [self.alphabet.yes_id, self.alphabet.no_id]
-        return self.alphabet.token_ids[: len(question.keys)]
-
-    def _evidence(self, hidden: list[float]) -> float:
-        h = np.asarray(hidden, dtype=np.float64)
+    def _evidence(self, hidden: Any) -> float:
+        h = _readout_vector(hidden)
+        if h.shape != self.evidence_weight.shape:
+            raise ValueError(
+                f"hidden state has {h.shape[0]} dimensions, the evidence head expects "
+                f"{self.evidence_weight.shape[0]}: this is not the model the client loaded"
+            )
         if self.normalize_evidence_input:
             h = (h - h.mean()) / np.sqrt(h.var() + 1e-5)
         return float(1.0 / (1.0 + np.exp(-(float(h @ self.evidence_weight) + self.evidence_bias))))
 
     def _decide(self, state: Any, question: Question) -> tuple[list[float], float]:
-        ids = self.option_ids(question)
+        prompt, ids = self.tokens(state, question)
         response = self.session.post(
             f"{self.url}/generate",
             json={
-                "text": self.prompt(state, question),
+                "input_ids": prompt,
                 "sampling_params": {"max_new_tokens": 1, "temperature": 0.0},
                 "return_logprob": True,
                 "token_ids_logprob": ids,
-                "return_hidden_states": True,
+                "return_hidden_states": self.want_evidence,
             },
             timeout=self.timeout,
         )
@@ -130,11 +181,14 @@ class SGLangClient:
         values -= values.max()
         probs = np.exp(values)
         probs /= probs.sum()
+        if not self.want_evidence:
+            return probs.tolist(), 1.0
         hidden = payload.get("hidden_states") or meta.get("hidden_states")
         if hidden is None:
-            raise ValueError("server did not return hidden states; start it so /generate can")
-        vector = hidden[-1] if isinstance(hidden[0], list) else hidden
-        return probs.tolist(), self._evidence(vector)
+            raise ValueError(
+                "server returned no hidden states; launch it with --enable-return-hidden-states"
+            )
+        return probs.tolist(), self._evidence(hidden)
 
     def answer(self, state: Any, questions: dict[str, Question]) -> dict[str, Answer]:
         out: dict[str, Answer] = {}
@@ -145,25 +199,40 @@ class SGLangClient:
 
 
 def verify_against_local(
-    url: str, model: str, state: Any, questions: dict[str, Question], tolerance: float = 0.02
+    url: str,
+    model: str,
+    state: Any,
+    questions: dict[str, Question],
+    tolerance: float = 0.02,
+    evidence: bool = True,
 ) -> dict[str, float]:
-    """Compare a live SGLang deployment with the local transformers path; returns the largest
-    probability difference per question. Run this before trusting a deployment: the response
-    layout is not pinned by a published schema."""
-    from assay.evaluate import load_model
+    """Compare a live SGLang deployment with the local transformers path.
 
-    local = load_model(model)
+    Returns the largest probability and evidence differences, and raises when either is beyond
+    `tolerance`. Run this before trusting a deployment: the response layout is not pinned by a
+    published schema, and a client that reads the wrong field is wrong quietly.
+    """
+    import torch
+
+    from assay.model import AssayModel
+
+    local = AssayModel.from_pretrained(_resolve(model), dtype=torch.float32, device="cpu")
     local.eval()
     reference = local.answer(state, questions)
-    remote = SGLangClient(url, model).answer(state, questions)
-    worst = {}
+    remote = SGLangClient(url, model, evidence=evidence).answer(state, questions)
+    worst_probability = 0.0
+    worst_evidence = 0.0
     for name, question in questions.items():
-        diffs = [
-            abs(reference[name].probabilities[k] - remote[name].probabilities[k])
-            for k in question.keys
-        ]
-        worst[name] = max(diffs)
-    bad = {n: d for n, d in worst.items() if d > tolerance}
-    if bad:
-        raise AssertionError(f"SGLang and local answers differ by more than {tolerance}: {bad}")
-    return worst
+        a, b = reference[name], remote[name]
+        worst_probability = max(
+            worst_probability,
+            max(abs(a.probabilities[k] - b.probabilities[k]) for k in question.keys),
+        )
+        if evidence:
+            worst_evidence = max(worst_evidence, abs(a.evidence - b.evidence))
+    if worst_probability > tolerance or worst_evidence > tolerance:
+        raise AssertionError(
+            f"SGLang disagrees with local transformers: probabilities differ by "
+            f"{worst_probability:.3e}, evidence by {worst_evidence:.3e}, tolerance {tolerance}"
+        )
+    return {"probability": worst_probability, "evidence": worst_evidence}
