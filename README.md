@@ -145,9 +145,11 @@ the number you quote is the one for your data. Score questions get prediction se
 two levels wide) but no act threshold at this alpha, because exact-level accuracy is the
 wrong error notion for ordinal answers.
 
-**Seed noise** (two seeds each): 1.7B runs reproduce to 0.3 points on every split; two 4B runs
-differ by 0.5-0.7 points on seen and unseen tasks and 1.1 points on the 764-item transfer
-suite (0.784 and 0.795). Differences under about 1.5 points on the transfer suite are noise.
+**Seed noise** (two seeds each): 0.6B runs land within 0.8 points on unseen tasks (0.704 and
+0.712) and 0.4 on the transfer suite, with identical seen-task accuracy; 1.7B runs reproduce to
+0.3 points on every split; two 4B runs differ by 0.5-0.7 points on seen and unseen tasks and
+1.1 points on the 764-item transfer suite (0.784 and 0.795). Differences under about 1.5 points
+on the transfer suite are noise.
 
 On the transfer suite assay-27b is within 1.5 points of Jev's reported 0.857 and 0.018 Brier
 of its 0.211, after 4.5 hours of QLoRA on one RTX 5090. Per family it is above Jev on dates
