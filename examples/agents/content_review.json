@@ -1,0 +1,61 @@
+{
+  "name": "content-review",
+  "description": "Decide whether a post can stand, needs a human, or breaks a stated rule",
+  "graph": {
+    "start": "in_scope",
+    "nodes": {
+      "in_scope": {
+        "question": {
+          "type": "bool",
+          "instructions": "Does the post contain enough text to judge it against a policy?",
+          "yes": "There is enough to judge",
+          "no": "It is empty, a bare link, or unreadable"
+        },
+        "edges": {"yes": "rule", "no": "insufficient"},
+        "min_evidence": 0.3,
+        "fallback": "insufficient",
+        "comment": "evidence first: a model asked to judge nothing will still answer"
+      },
+      "rule": {
+        "question": {
+          "type": "choice",
+          "instructions": "Which rule does this post break, if any?",
+          "options": {
+            "none": "It breaks no rule",
+            "harassment": "It targets a person with abuse or threats",
+            "spam": "It is unsolicited advertising or a scam",
+            "self_harm": "It describes self-harm or suicidal intent"
+          }
+        },
+        "edges": {
+          "none": "publish",
+          "harassment": "severity",
+          "spam": "remove",
+          "self_harm": "care"
+        },
+        "min_probability": 0.6,
+        "fallback": "review"
+      },
+      "severity": {
+        "question": {
+          "type": "score",
+          "instructions": "How severe is the abuse in this post?",
+          "levels": ["Rude", "Demeaning", "Threatening"]
+        },
+        "edges": {"0": "review", "1": "review", "2": "remove"},
+        "default": "review"
+      },
+      "publish": {"outcome": "allow"},
+      "remove": {"outcome": "remove"},
+      "review": {"outcome": "human_review"},
+      "care": {"outcome": "offer_support"},
+      "insufficient": {"outcome": "human_review"}
+    }
+  },
+  "actions": {
+    "allow": {"action": "publish", "arguments": {}},
+    "remove": {"action": "remove_post", "arguments": {"notify_author": true}},
+    "human_review": {"action": "queue_for_review", "arguments": {"queue": "moderation"}},
+    "offer_support": {"action": "queue_for_review", "arguments": {"queue": "wellbeing", "priority": "high"}}
+  }
+}

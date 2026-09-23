@@ -1,0 +1,71 @@
+{
+  "name": "document-intake",
+  "description": "Sort an incoming document and say whether it can be processed automatically",
+  "graph": {
+    "start": "kind",
+    "nodes": {
+      "kind": {
+        "question": {
+          "type": "choice",
+          "instructions": "What kind of document is this?",
+          "options": {
+            "invoice": "A bill with amounts due",
+            "contract": "An agreement between parties",
+            "application": "Someone applying for something",
+            "correspondence": "A letter or message with no form to it"
+          }
+        },
+        "edges": {
+          "invoice": "invoice_complete",
+          "contract": "signed",
+          "application": "application_complete",
+          "correspondence": "file"
+        },
+        "min_probability": 0.5,
+        "fallback": "manual"
+      },
+      "invoice_complete": {
+        "question": {
+          "type": "bool",
+          "instructions": "Does the document state both an amount and a due date?",
+          "yes": "Both are present",
+          "no": "One or both are missing"
+        },
+        "edges": {"yes": "pay_run", "no": "manual"},
+        "require_act": true,
+        "fallback": "manual",
+        "comment": "require_act uses the model's fitted conformal threshold, so the automatic path carries a bounded error rate"
+      },
+      "signed": {
+        "question": {
+          "type": "bool",
+          "instructions": "Does the document show that every party has signed it?"
+        },
+        "edges": {"yes": "archive", "no": "chase"}
+      },
+      "application_complete": {
+        "question": {
+          "type": "score",
+          "instructions": "How complete is this application?",
+          "levels": ["Missing most of what is asked for", "Missing something small", "Complete"]
+        },
+        "edges": {"2": "assess", "1": "chase", "0": "chase"},
+        "default": "manual"
+      },
+      "pay_run": {"outcome": "queue_for_payment"},
+      "archive": {"outcome": "archive"},
+      "chase": {"outcome": "request_missing_information"},
+      "assess": {"outcome": "queue_for_assessment"},
+      "file": {"outcome": "file_correspondence"},
+      "manual": {"outcome": "manual_handling"}
+    }
+  },
+  "actions": {
+    "queue_for_payment": {"action": "queue", "arguments": {"queue": "accounts-payable"}},
+    "queue_for_assessment": {"action": "queue", "arguments": {"queue": "assessments"}},
+    "archive": {"action": "archive", "arguments": {}},
+    "request_missing_information": {"action": "request_information", "arguments": {}},
+    "file_correspondence": {"action": "archive", "arguments": {"folder": "correspondence"}},
+    "manual_handling": {"action": "queue", "arguments": {"queue": "manual", "reason": "the model was not sure"}}
+  }
+}

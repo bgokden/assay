@@ -211,3 +211,14 @@ def test_agents_load_from_a_directory(tmp_path):
     empty.mkdir()
     with pytest.raises(ValueError, match="no agent specifications"):
         load_agents(str(empty))
+
+
+def test_every_shipped_example_agent_is_valid():
+    """The templates are documentation, so they have to keep loading."""
+    agents = load_agents("examples/agents")
+    assert set(agents) == {"support-triage", "content-review", "document-intake"}
+    for agent in agents.values():
+        assert agent.description
+        assert agent.questions()
+        for outcome, action in agent.actions.items():
+            assert action.name, outcome
