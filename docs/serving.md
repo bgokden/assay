@@ -13,6 +13,18 @@ curl -s localhost:8000/health
 untrained readout. The tier is read from the saved configuration, so the decoder, encoder and
 encoder-decoder models are all served the same way.
 
+## A note on transformers versions
+
+transformers 5 renamed the tokenizer config's `additional_special_tokens` to
+`extra_special_tokens` while still writing a list; transformers 4 reads that name as a mapping
+and raises `AttributeError: 'list' object has no attribute 'keys'`. A model published from a
+transformers 5 environment therefore fails to load on 4, which is what SGLang and llama.cpp's
+converter pin, and what most people still run.
+
+The published models carry a config both generations load, and `assay.compat` applies the same
+fix to anything this repository publishes. If you save a model yourself and something downstream
+refuses the tokenizer with that error, that is the cause.
+
 ## A page for trying it
 
 `GET /` serves a page with no build step and no external assets: paste a state, add typed

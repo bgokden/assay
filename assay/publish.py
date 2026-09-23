@@ -17,6 +17,7 @@ import shutil
 import torch
 from huggingface_hub import HfApi
 
+from assay.compat import normalise_tokenizer_config
 from assay.family import short_table
 from assay.model import CONFIG_FILE, HEAD_FILE, AssayModel
 
@@ -282,6 +283,8 @@ def update_card_and_thresholds(
     for fn in ("conformal.json", "conformal-eval.json"):
         if os.path.exists(os.path.join(run, fn)):
             shutil.copy(os.path.join(run, fn), os.path.join(staging, fn))
+    if normalise_tokenizer_config(staging):
+        print("rewrote the tokenizer config so transformers 4 can load it too")
     print(f"staged {staging}: {sorted(os.listdir(staging))}")
     if dry_run:
         return
