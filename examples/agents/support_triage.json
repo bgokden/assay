@@ -15,23 +15,41 @@
             "account": "Sign-in, passwords and profile changes"
           }
         },
-        "edges": {"billing": "refund", "technical": "outage", "account": "identity"},
+        "edges": {
+          "billing": "refund",
+          "technical": "outage",
+          "account": "identity"
+        },
         "min_probability": 0.45,
         "min_evidence": 0.2,
         "fallback": "human",
         "comment": "an unsure route is a route: it goes to a person"
       },
       "refund": {
-        "question": {"type": "bool", "instructions": "Is the customer asking for money back?"},
-        "edges": {"yes": "amount", "no": "reply"}
+        "question": {
+          "type": "bool",
+          "instructions": "Is the customer asking for money back?"
+        },
+        "edges": {
+          "yes": "amount",
+          "no": "reply"
+        }
       },
       "amount": {
         "question": {
           "type": "score",
           "instructions": "How large is the amount in dispute?",
-          "levels": ["Under 50", "Between 50 and 500", "Over 500"]
+          "levels": [
+            "Under 50",
+            "Between 50 and 500",
+            "Over 500"
+          ]
         },
-        "edges": {"0": "small_refund", "1": "small_refund", "2": "human"},
+        "edges": {
+          "0": "small_refund",
+          "1": "small_refund",
+          "2": "large_refund"
+        },
         "default": "human"
       },
       "outage": {
@@ -39,24 +57,75 @@
           "type": "bool",
           "instructions": "Does this describe an outage affecting several people?"
         },
-        "edges": {"yes": "page", "no": "reply"}
+        "edges": {
+          "yes": "page",
+          "no": "reply"
+        }
       },
       "identity": {
-        "question": {"type": "bool", "instructions": "Does the customer need help signing in?"},
-        "edges": {"yes": "reset", "no": "reply"}
+        "question": {
+          "type": "bool",
+          "instructions": "Does the customer need help signing in?"
+        },
+        "edges": {
+          "yes": "reset",
+          "no": "reply"
+        }
       },
-      "small_refund": {"outcome": "issue_refund"},
-      "page": {"outcome": "page_oncall"},
-      "reset": {"outcome": "reset_access"},
-      "reply": {"outcome": "reply"},
-      "human": {"outcome": "human_review"}
+      "small_refund": {
+        "outcome": "issue_refund"
+      },
+      "page": {
+        "outcome": "page_oncall"
+      },
+      "reset": {
+        "outcome": "reset_access"
+      },
+      "reply": {
+        "outcome": "reply"
+      },
+      "human": {
+        "outcome": "human_review"
+      },
+      "large_refund": {
+        "outcome": "over_refund_limit"
+      }
     }
   },
   "actions": {
-    "issue_refund": {"action": "refund", "arguments": {"queue": "billing", "limit": 500}},
-    "page_oncall": {"action": "page", "arguments": {"rota": "infrastructure"}},
-    "reset_access": {"action": "reset_password", "arguments": {}},
-    "reply": {"action": "draft_reply", "arguments": {}},
-    "human_review": {"action": "escalate", "arguments": {"reason": "the model was not sure"}}
+    "issue_refund": {
+      "action": "refund",
+      "arguments": {
+        "queue": "billing",
+        "limit": 500
+      }
+    },
+    "page_oncall": {
+      "action": "page",
+      "arguments": {
+        "rota": "infrastructure"
+      }
+    },
+    "reset_access": {
+      "action": "reset_password",
+      "arguments": {}
+    },
+    "reply": {
+      "action": "draft_reply",
+      "arguments": {}
+    },
+    "human_review": {
+      "action": "escalate",
+      "arguments": {
+        "reason": "the model was not sure"
+      }
+    },
+    "over_refund_limit": {
+      "action": "escalate",
+      "arguments": {
+        "queue": "billing",
+        "reason": "above the automatic refund limit"
+      }
+    }
   }
 }

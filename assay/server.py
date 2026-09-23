@@ -171,6 +171,15 @@ def create_app(
         with open(path) as f:
             return HTMLResponse(f.read())
 
+    @app.get("/chat", response_class=HTMLResponse)
+    def chat() -> HTMLResponse:
+        """The same model in a conversation: conditions given once, then a decision per turn,
+        with the probabilities it decided on and how long it took. Nothing is generated -- the
+        reply text is a template the outcome selects."""
+        path = os.path.join(os.path.dirname(__file__), "static", "chat.html")
+        with open(path) as f:
+            return HTMLResponse(f.read())
+
     @app.get("/v1/models")
     def models() -> dict[str, Any]:
         base = next(

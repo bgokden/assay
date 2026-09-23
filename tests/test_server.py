@@ -372,3 +372,18 @@ def test_the_page_is_served_and_needs_no_key(client):
     for endpoint in ("/v1/decide", "/v1/agents", "/v1/models"):
         assert endpoint in body, endpoint
     assert "authorization" in body  # it sends a bearer token when one is given
+
+
+def test_the_chat_page_is_served(client):
+    """A conversation is decisions over an accumulating state, one turn at a time. The page
+    runs an agent per turn and shows what it decided, on what probabilities, and how long it
+    took -- so it must reach the agent endpoints, not just /v1/decide."""
+    r = client.get("/chat")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    body = r.text
+    assert "/v1/agents/" in body
+    assert "/v1/models" in body
+    # the replies are templates the outcome selects; the page must say so, because a reader
+    # will otherwise assume the model wrote them
+    assert "the model writes no text" in body

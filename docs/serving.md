@@ -58,6 +58,12 @@ The page calls the same endpoints a client calls, so what it shows is what a cli
 is open even when `--api-key` is set -- the page asks for the key and sends it as a bearer
 token -- because the guard belongs on `/v1`, not on a static file.
 
+`GET /chat` is the same model in a conversation: the standing conditions are given once, then
+each turn runs an agent over the conversation so far and shows what it decided, the
+probabilities it decided on, and how long it took. It is the clearest demonstration of what
+this is for -- a decision lands in tens of milliseconds, and an escalation is a decision too.
+The reply text is a template the outcome selects; the model generates none of it.
+
 ## Choosing a runtime
 
 Four ways to run the same model. They differ in what they can return, not in what they answer:
