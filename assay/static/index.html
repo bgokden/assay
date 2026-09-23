@@ -107,6 +107,7 @@
       <div class="row" style="margin-top: 10px">
         <button class="small" onclick="loadExample('refund')">refund example</button>
         <button class="small" onclick="loadExample('outage')">outage example</button>
+        <button class="small" onclick="loadExample('contract')">contract example</button>
         <button class="small" onclick="loadExample('empty')">clear</button>
       </div>
       <div style="margin-top: 18px">
@@ -119,11 +120,11 @@
         <div id="questions"></div>
       </div>
       <button class="action" id="decide" onclick="decide()">Decide</button>
-      <div class="note" id="usage"></div>
       <div class="error" id="decide-error"></div>
     </div>
     <div>
       <label>Answers</label>
+      <div class="note" id="usage"></div>
       <div id="answers"><div class="note">No answers yet. Every question is answered in one
         forward pass over the state.</div></div>
     </div>
@@ -172,6 +173,26 @@ const EXAMPLES = {
       {name: "outage", type: "bool", instructions: "Does this describe an outage affecting several people?"},
       {name: "urgency", type: "score", instructions: "How urgent is this ticket?",
        levels: ["Can wait", "Needs attention today", "Blocking work right now"]}
+    ]
+  },
+  contract: {
+    state: {document: "Vendor Services Agreement, clause 7", text: "This Agreement renews automatically for successive twelve (12) month terms unless either party gives written notice of non-renewal at least sixty (60) days before the end of the then-current term. Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding six (6) months. Invoices are payable within forty-five (45) days. Supplier may process Customer personal data solely to provide the services."},
+    questions: [
+      {name: "auto_renews", type: "bool", instructions: "Does this contract renew automatically?"},
+      {name: "liability_capped", type: "bool", instructions: "Is the supplier's liability capped?"},
+      {name: "processes_personal_data", type: "bool", instructions: "Does the supplier process personal data?"},
+      {name: "notice_period", type: "choice", instructions: "How much notice is needed to stop the renewal?",
+       options: {"30_days": "Thirty days", "60_days": "Sixty days", "90_days": "Ninety days", unstated: "The clause does not say"}},
+      {name: "payment_window", type: "choice", instructions: "When are invoices payable?",
+       options: {"14_days": "Within fourteen days", "30_days": "Within thirty days", "45_days": "Within forty-five days", unstated: "The clause does not say"}},
+      {name: "governing_law", type: "choice", instructions: "Which law governs this agreement?",
+       options: {uk: "England and Wales", us: "A United States jurisdiction", eu: "An EU member state", unstated: "The clause does not say"}},
+      {name: "payment_terms_risk", type: "score", instructions: "How unfavourable are the payment terms to the customer?",
+       levels: ["Standard", "Worth negotiating", "Unacceptable"]},
+      {name: "liability_risk", type: "score", instructions: "How much risk does the liability cap leave with the customer?",
+       levels: ["Low", "Moderate", "High"]},
+      {name: "needs_legal_review", type: "bool", instructions: "Should a lawyer review this clause before signing?"},
+      {name: "has_indemnity", type: "bool", instructions: "Does this clause contain an indemnity?"}
     ]
   },
   empty: {state: "", questions: []}
