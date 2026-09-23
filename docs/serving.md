@@ -58,6 +58,30 @@ The page calls the same endpoints a client calls, so what it shows is what a cli
 is open even when `--api-key` is set -- the page asks for the key and sends it as a bearer
 token -- because the guard belongs on `/v1`, not on a static file.
 
+## Choosing a runtime
+
+Four ways to run the same model. They differ in what they can return, not in what they answer:
+the temperature, the evidence head and the conformal thresholds all run client-side, so a model
+gives the same answers wherever the weights sit.
+
+| | when it is the right one | cost of a decision | checked against the reference |
+|---|---|---|---|
+| `assay.server` (transformers) | the default, and the only one that packs | 24 questions cost about what one costs | it is the reference |
+| SGLang | you already run SGLang, or want RadixAttention across requests | 42 ms for three questions, warm | probabilities 1.2e-2, evidence 7.7e-5 |
+| llama.cpp | no GPU | 57 ms for one question, 262 ms for three | probabilities 1.1e-4, evidence 2.4e-6 |
+| vLLM | not available; see [roadmap.md](roadmap.md) | | |
+
+Prefer `assay.server` unless you have a reason not to. It is the only one that packs questions
+into a single forward pass, which is the whole economic argument for asking twenty questions
+about a state instead of one: on the dense decoder tiers twenty-four questions cost about what
+one costs. Neither SGLang nor llama.cpp can do that -- each question is a separate request --
+so their per-question cost is flat, and a decision that asks many questions pays for each.
+
+The reason to use SGLang anyway is that you are already running it. The reason to use llama.cpp
+is that there is no GPU. Both are worth checking with `verify_against_local` first, and the
+numbers above are what that check returned here; the SGLang figure is bf16 rounding rather than
+a runtime difference, and it is worst on near-uniform distributions.
+
 ## Choosing a model
 
 | you want | use | unseen-task accuracy | one question |
@@ -237,6 +261,24 @@ for the first question. And `verify_against_local` is not optional ceremony: a G
 converted, usually quantised copy of the weights, and conversion is where a deployment goes
 quietly wrong. Without `--embeddings --pooling last --embd-normalize -1` there is no evidence
 score; pass `evidence=False` to answer from the readout alone.
+
+### What it costs
+
+assay-0.6b as an f16 GGUF, CPU only, `llama-server -t 8` with its default four slots:
+
+| | |
+|---|---|
+| one question | 57 ms |
+| three questions, one state | 262 ms (87 ms each) |
+| three questions, `evidence=False` | 187 ms (62 ms each) |
+| peak throughput | 15.6 questions/s, at two concurrent requests |
+| agreement with transformers | probabilities 1.1e-4, evidence 2.4e-6 |
+
+Two things those numbers say. The evidence head costs about 25 ms per question, because it is
+a second request -- `/embeddings` -- rather than a second output of the first; turn it off if
+you only need the distribution. And concurrency past two requests makes things worse, not
+better: the threads are already saturated, so further requests contend rather than pipeline.
+Add processes across cores, not concurrency within one.
 
 ## API
 

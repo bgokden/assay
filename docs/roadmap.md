@@ -349,7 +349,7 @@ needs it. That single requirement decides the list.
 | runtime | readout | evidence head | packing | state |
 |---|---|---|---|---|
 | transformers | yes | yes | yes, block mask | the reference; calibration is fitted against it |
-| llama.cpp | yes, `n_probs` | yes, `/embeddings --pooling last` | no | implemented and verified to 2.8e-4 |
+| llama.cpp | yes, `n_probs` | yes, `/embeddings --pooling last` | no | implemented, verified to 1.1e-4, 15.6 questions/s on CPU |
 | SGLang | yes, `token_ids_logprob` | yes, `return_hidden_states` | no | implemented and verified to 1.2e-2, bf16 noise |
 | vLLM | yes, with `--max-logprobs` raised | not from a generate instance | no | not implemented, see below |
 | TGI | top-N only (`details.top_tokens`) | not exposed | no | not implemented |
@@ -380,10 +380,19 @@ Not yet measured: llama.cpp's throughput. It is verified correct, not benchmarke
 
 - Dynamic batching in `assay.server`: queue requests, bucket by length, one forward per batch
   (prefill only, so no scheduler needed). Measured headroom about 10x on single-question loads.
-- Optional SGLang backend for the decoder tier: `/generate` with `token_ids_logprob` and
-  `return_hidden_states`, evidence head applied client-side, temperature and conformal
-  thresholds where they already are. Verify that the returned hidden state is the post-final-norm
-  vector our head was trained on before trusting the evidence output.
+- Optional SGLang backend for the decoder tier: done, and verified against a live server on
+  2026-09-23. The returned hidden state is the post-final-norm vector the head was trained on;
+  that was settled by matching it against every layer output of the reference model, where the
+  final norm scores 0.9940 and the layer below it 0.2751. Three things had to be fixed first,
+  and two of them would have passed a review. The prompt was being sent as text, so the server
+  retokenized it and merged the newline pair at the state boundary (6.1e-2 on probabilities).
+  The hidden-state rows were being indexed as if there were one per prompt token, which holds
+  only for a cold prefix. And the published config omitted the `rope_theta` transformers 4
+  reads, so the server ran the model at a RoPE base of 10000 against a true 1000000 -- a
+  hundredfold error that no layer of the stack reported (7.1e-2 on probabilities). The evidence
+  score did not catch any of it: it is a saturated sigmoid, and it agreed to 2.7e-3 while the
+  vector underneath it was visibly wrong. Probabilities now agree to 1.2e-2, which is bf16
+  rounding, and evidence to 7.7e-5.
 - Prefix-state serving for hybrid backbones: done 2026-09-23 in `assay.prefix`, and measured
   on assay-27b (4-bit). Twenty-four questions over one state: 533 ms against 888 ms for a
   sequence per question, twelve: 343 against 449, one: unchanged, because below
