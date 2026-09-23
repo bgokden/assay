@@ -13,6 +13,23 @@ curl -s localhost:8000/health
 untrained readout. The tier is read from the saved configuration, so the decoder, encoder and
 encoder-decoder models are all served the same way.
 
+## A page for trying it
+
+`GET /` serves a page with no build step and no external assets: paste a state, add typed
+questions, and see the probabilities, the confidence, the evidence score and, when the model
+has conformal thresholds, whether each answer clears the act threshold. A second tab lists the
+agents this server holds and walks one over a state, showing the path it took and the action it
+would return.
+
+```bash
+uv run python -m assay.server --model Berk/assay-4b --agents examples/agents --port 8000
+# then open http://127.0.0.1:8000/
+```
+
+The page calls the same endpoints a client calls, so what it shows is what a client gets. It
+is open even when `--api-key` is set -- the page asks for the key and sends it as a bearer
+token -- because the guard belongs on `/v1`, not on a static file.
+
 ## Choosing a model
 
 | you want | use | unseen-task accuracy | one question |

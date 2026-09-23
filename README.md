@@ -251,6 +251,10 @@ The server also accepts the System One style payload that other open decision mo
 client written for that interface works unchanged; `POST /v1/decide_graph` walks a decision
 tree in a single forward pass; `/health`, `/metrics` and `/v1/stats` are for operations.
 
+`GET /` is a page for trying the model by hand: a state, typed questions, the answers with
+their probability bars and act/hand-over badges, and a tab that runs the agents the server
+holds. No build step, no external assets.
+
 ```bash
 curl -s localhost:8000/v1/decide -H 'content-type: application/json' -d '{
   "state": "My card was charged twice for order A-104.",

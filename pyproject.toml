@@ -29,6 +29,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["assay"]
+artifacts = ["assay/static/*.html"]
 
 [tool.uv]
 index-strategy = "unsafe-best-match"

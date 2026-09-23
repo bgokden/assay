@@ -25,7 +25,9 @@ question costs; the walk is then pure logic. See assay.graph.
 
 Requests are batched: several arriving together are answered in one forward pass, which is
 where the throughput is (24 questions cost 56 ms batched against 544 ms one at a time).
-GET /health reports readiness, GET /metrics exposes Prometheus counters.
+GET /health reports readiness, GET /metrics exposes Prometheus counters, and GET / serves a
+page for trying the model by hand: questions, answers with their probabilities, and the
+agents this server holds.
 
 When the model directory holds conformal.json (see assay.conformal), every answer also
 carries "act" (the top answer is confident enough for the fitted error rate) and "set"
@@ -46,7 +48,7 @@ from typing import Any
 import torch
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from assay.agent import MAX_AGENTS, Agent, load_agents
@@ -159,6 +161,15 @@ def create_app(
             for n in names:
                 decorate(out[n], questions[n], conformal)
         return out, runner.size(item)
+
+    @app.get("/", response_class=HTMLResponse)
+    def index() -> HTMLResponse:
+        """A page for trying the model: state, typed questions, answers with their
+        probabilities, and the agents this server holds. It talks to the same endpoints a
+        client would, so what it shows is what a client gets."""
+        path = os.path.join(os.path.dirname(__file__), "static", "index.html")
+        with open(path) as f:
+            return HTMLResponse(f.read())
 
     @app.get("/v1/models")
     def models() -> dict[str, Any]:

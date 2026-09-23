@@ -360,3 +360,15 @@ def test_a_bad_agent_specification_is_rejected(client):
     assert r.status_code == 422
     assert "never reaches" in r.json()["detail"]
     assert client.post("/v1/agents", json={"name": "x"}).status_code == 422
+
+
+def test_the_page_is_served_and_needs_no_key(client):
+    """The page talks to /v1 with whatever key the user types, so the page itself stays open."""
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    body = r.text
+    assert "<title>Assay</title>" in body
+    for endpoint in ("/v1/decide", "/v1/agents", "/v1/models"):
+        assert endpoint in body, endpoint
+    assert "authorization" in body  # it sends a bearer token when one is given
