@@ -60,17 +60,11 @@ class StubSession:
 
 
 @pytest.fixture(scope="module")
-def client(tmp_path_factory):
+def client(saved_model):
     """A client built against a saved model directory, with its HTTP session stubbed."""
-    import torch
-
     from assay.backends.sglang import SGLangClient
-    from assay.model import AssayModel
 
-    path = tmp_path_factory.mktemp("model")
-    model = AssayModel.from_base(BASE, lora_r=None, dtype=torch.float32, device="cpu")
-    model.save_pretrained(str(path))
-    return SGLangClient.__new__(SGLangClient), str(path)
+    return SGLangClient.__new__(SGLangClient), saved_model
 
 
 def build(path, style="tuple", logprobs=(-0.2, -1.6)):

@@ -42,6 +42,12 @@ explicit = true
 [tool.uv.sources]
 torch = { index = "pytorch-cu128" }
 
+[tool.pytest.ini_options]
+# the model-saving fixtures write a copy of the weights; pytest keeps the last three runs by
+# default, which quietly turned into 12 GB of temporary directories on this machine
+tmp_path_retention_count = 1
+tmp_path_retention_policy = "failed"
+
 [tool.ruff]
 line-length = 100
 extend-exclude = ["*.md"]  # the formatter would rewrite the code samples in the documentation

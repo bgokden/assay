@@ -11,6 +11,7 @@ import os
 import pytest
 import torch
 
+BASE = os.environ.get("ASSAY_TEST_BASE", "Qwen/Qwen3-0.6B-Base")
 DEVICE = os.environ.get("ASSAY_TEST_DEVICE", "cuda")
 NEEDED_GIB = float(os.environ.get("ASSAY_TEST_FREE_GIB", "6"))
 
@@ -35,3 +36,19 @@ def pytest_collection_modifyitems(config, items):
         # reliable signal because some tests build their own model
         if getattr(item.module, "DEVICE", None) == "cuda":
             item.add_marker(skip)
+
+
+@pytest.fixture(scope="session")
+def saved_model(tmp_path_factory):
+    """A model directory on disk, saved once for the whole session.
+
+    Saving it per module costs a copy of the weights each time, and pytest keeps the temporary
+    directories of recent runs, so the copies add up on disk faster than anyone expects.
+    """
+    from assay.model import AssayModel
+
+    path = tmp_path_factory.mktemp("saved_model")
+    model = AssayModel.from_base(BASE, lora_r=None, dtype=torch.float32, device="cpu")
+    model.save_pretrained(str(path))
+    del model
+    return str(path)

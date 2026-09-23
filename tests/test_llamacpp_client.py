@@ -66,15 +66,9 @@ class StubSession:
 
 
 @pytest.fixture(scope="module")
-def model_path(tmp_path_factory):
-    import torch
-
-    from assay.model import AssayModel
-
-    path = tmp_path_factory.mktemp("model")
-    model = AssayModel.from_base(BASE, lora_r=None, dtype=torch.float32, device="cpu")
-    model.save_pretrained(str(path))
-    return str(path)
+def model_path(saved_model):
+    """The session-wide copy from conftest: saving another costs a copy of the weights."""
+    return saved_model
 
 
 def build(path, **kwargs):
