@@ -24,8 +24,14 @@ encoder-decoder models are all served the same way.
 | no GPU at all | [assay-compiled-base](https://huggingface.co/Berk/assay-compiled-base) | 0.606 | 29 ms (CPU) |
 
 Full numbers, including abstention rates, are in [models.md](models.md). Twenty-four questions
-over one state cost about what one question costs on the decoder tiers (57 ms on the 4B), so
-ask everything you need in one request rather than splitting it.
+over one state cost about what one question costs on the dense decoder tiers (57 ms on the
+4B), so ask everything you need in one request rather than splitting it. The 27B has a hybrid
+backbone whose linear-attention layers cannot be packed that way; it shares one encoding of
+the state instead (`assay.prefix`), which puts twenty-four questions at 533 ms rather than 888.
+
+Its 4-bit weights are also worth knowing about: probabilities move by around 2e-2 depending on
+how requests are batched, so treat a threshold sitting within a couple of points of a decision
+boundary on that model as approximate.
 
 ## Options
 

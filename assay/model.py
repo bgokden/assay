@@ -311,9 +311,23 @@ class AssayModel(nn.Module):
         names = list(questions.keys())
         qs = [questions[n] for n in names]
         if self.hybrid:
-            from assay.prefix import prefix_answers
+            from assay.prefix import PREFIX_MIN_QUESTIONS, prefix_answers
 
-            return dict(zip(names, prefix_answers(self, state, qs, max_state_tokens)))
+            if len(qs) >= PREFIX_MIN_QUESTIONS:
+                return dict(zip(names, prefix_answers(self, state, qs, max_state_tokens)))
+            packs = [
+                encode(
+                    self.tokenizer,
+                    self.alphabet,
+                    state,
+                    [q],
+                    orders=[identity_order(q)],
+                    max_state_tokens=max_state_tokens,
+                )
+                for q in qs
+            ]
+            answers = [a[0] for a in self.answer_packed(packs, [[q] for q in qs])]
+            return dict(zip(names, answers))
         packed = encode(
             self.tokenizer,
             self.alphabet,
@@ -331,11 +345,17 @@ class AssayModel(nn.Module):
     ) -> list[list[Answer]]:
         """Answer already-encoded requests; returns one list of Answers per request in question
         order (canonical option order regardless of display order)."""
-        if self.hybrid:
-            # a block mask cannot isolate questions here, so each request runs its own state
-            # once and answers its questions from that cache
-            from assay.prefix import prefix_logits
+        from assay.prefix import PREFIX_MIN_QUESTIONS, prefix_logits
 
+        if self.hybrid and all(len(p.questions) < PREFIX_MIN_QUESTIONS for p in packed):
+            # few questions per request: one sequence each, batched by collate, which beats
+            # paying for a separate state pass (see PREFIX_MIN_QUESTIONS)
+            batch = collate(packed, self.tokenizer.pad_token_id).to(self.device)
+            out = self.forward(batch)
+            option_logits, evidence_logits = out.option_logits, out.evidence_logits
+        elif self.hybrid:
+            # a block mask cannot isolate questions here, so a request with enough questions
+            # runs its own state once and answers them from that cache
             parts = [prefix_logits(self, p) for p in packed]
             width = max(part[0].shape[1] for part in parts)
             option_logits = torch.cat(

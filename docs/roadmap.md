@@ -347,7 +347,20 @@ loop there is no head-of-line blocking to avoid, only batch filling and prefix r
   `return_hidden_states`, evidence head applied client-side, temperature and conformal
   thresholds where they already are. Verify that the returned hidden state is the post-final-norm
   vector our head was trained on before trusting the evidence output.
-- Prefix-state serving for hybrid backbones: done 2026-09-23 in `assay.prefix`. The state runs
+- Prefix-state serving for hybrid backbones: done 2026-09-23 in `assay.prefix`, and measured
+  on assay-27b (4-bit). Twenty-four questions over one state: 533 ms against 888 ms for a
+  sequence per question, twelve: 343 against 449, one: unchanged, because below
+  `PREFIX_MIN_QUESTIONS` (8) the two extra passes cost more than re-encoding the state and the
+  model keeps the old path. Measuring the old path fairly mattered: against *sequential*
+  single-question calls the speedup looks like 7x, but the old code batched those calls, and
+  against that the honest figure is 1.7x.
+
+  A second finding from the same run, about the 27B rather than about this change: its 4-bit
+  arithmetic moves a probability by about 2e-2 when the batching changes. Prefix against
+  batched singles at the same question count is 2.2e-2, batched singles against one-at-a-time
+  is 2.4e-2, and the same call twice is bit-identical. So the paths agree as well as the model
+  agrees with itself, and a threshold set near a decision boundary on this model should be
+  expected to wobble by that much. The state runs
   once with the cache on, `reorder_cache` fans that cache out to one row per question (every
   layer type implements it, including the linear-attention layers), and the question blocks run
   as a batch continuing from it. Verified against the packed path on a dense backbone: 1.8e-6

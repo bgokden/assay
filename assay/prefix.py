@@ -25,6 +25,11 @@ import torch
 from assay.encoding import Packed, encode, identity_order
 from assay.schema import Answer, Question, make_answer
 
+# Below this many questions the two extra passes cost more than re-encoding the state does.
+# Measured on assay-27b (4-bit): one question 155 ms against 109 ms for a sequence per
+# question, six questions a wash, twelve 342 ms against 458 ms, twenty-four 532 against 888.
+PREFIX_MIN_QUESTIONS = 8
+
 
 @dataclasses.dataclass
 class Split:
@@ -107,7 +112,7 @@ def prefix_logits(model, packed: Packed) -> tuple[torch.Tensor, torch.Tensor]:
     prefix = backbone(
         input_ids=state,
         position_ids=torch.arange(state.shape[1], device=device).unsqueeze(0),
-        attention_mask=_mask_for(model, state_mask, state_mask),
+        attention_mask=_mask_for(model, causal_mask(state.shape[1], device), state_mask),
         use_cache=True,
     )
     cache = prefix.past_key_values
@@ -118,13 +123,14 @@ def prefix_logits(model, packed: Packed) -> tuple[torch.Tensor, torch.Tensor]:
     positions = state.shape[1] + torch.arange(ids.shape[1], device=device).unsqueeze(0).expand(
         count, -1
     )
-    full_mask = torch.cat(
+    flat_mask = torch.cat(
         [torch.ones(count, state.shape[1], dtype=torch.long, device=device), block_mask], dim=1
     )
+    prepared = suffix_mask(block_mask, state.shape[1]) if model.hybrid else flat_mask
     hidden = backbone(
         input_ids=ids,
         position_ids=positions,
-        attention_mask=_mask_for(model, full_mask, block_mask),
+        attention_mask=_mask_for(model, prepared, block_mask) if model.hybrid else flat_mask,
         past_key_values=cache,
         use_cache=True,
     ).last_hidden_state
@@ -147,9 +153,32 @@ def prefix_logits(model, packed: Packed) -> tuple[torch.Tensor, torch.Tensor]:
     return option_logits, evidence
 
 
-def _mask_for(model, full_mask: torch.Tensor, current_mask: torch.Tensor):
-    """Hybrid backbones want a mask per layer family: the attention layers see the whole
-    sequence so far, the linear-attention layers only the tokens they are being given."""
+def causal_mask(length: int, device: torch.device) -> torch.Tensor:
+    """(1, 1, L, L) boolean mask for a sequence attending to itself, causally."""
+    idx = torch.arange(length, device=device)
+    return (idx[None, :] <= idx[:, None])[None, None]
+
+
+def suffix_mask(block_mask: torch.Tensor, state_len: int) -> torch.Tensor:
+    """(Q, 1, B, S + B): every question block sees all of the state and, causally, itself.
+
+    This is the block mask of the packed path written against a cached prefix: the state is
+    the keys before the block, and padding is never visible. The diagonal is always allowed so
+    a padded row still has something to attend to and its softmax stays finite.
+    """
+    count, width = block_mask.shape
+    device = block_mask.device
+    state = torch.ones(count, 1, width, state_len, dtype=torch.bool, device=device)
+    within = causal_mask(width, device).expand(count, 1, width, width)
+    real = block_mask.bool()[:, None, None, :].expand(count, 1, width, width)
+    block = within & real
+    block = block | torch.eye(width, dtype=torch.bool, device=device)[None, None]
+    return torch.cat([state, block], dim=-1)
+
+
+def _mask_for(model, prepared: torch.Tensor, padding: torch.Tensor):
+    """Hybrid backbones want a mask per layer family: the attention layers take the prepared
+    boolean mask, the linear-attention layers only the padding of the tokens being given."""
     if getattr(model, "hybrid", False):
-        return {"full_attention": full_mask, "linear_attention": current_mask}
-    return full_mask
+        return {"full_attention": prepared, "linear_attention": padding}
+    return padding
