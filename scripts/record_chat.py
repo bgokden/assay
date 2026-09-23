@@ -15,6 +15,7 @@ to latencies.txt, so whatever quotes the video can quote the take that was actua
 
 import argparse
 import json
+import math
 import pathlib
 import shutil
 import subprocess
@@ -29,6 +30,7 @@ FPS = 10
 HOLD_LAST = 2.4  # on the final decision, before moving
 HOLD_SCROLL = 1.2  # easing back to the top
 HOLD_END = 3.6  # the read-it hold, and where the poster frame comes from
+TYPED_FRAMES = 20  # frames spent typing each line, so it is visible at any playback rate
 SCRIPT = [
     "I was charged twice for order A-104, that is 240 euros.",
     "Actually it is the whole annual contract, 2,400 euros.",
@@ -72,10 +74,25 @@ def main() -> None:
                 frame += 1
                 time.sleep(max(0.0, 1.0 / FPS - 0.06))
 
+        def type_line(line: str) -> None:
+            """Advance the composer one frame at a time.
+
+            The page can type itself, but a browser being screenshotted does not honour small
+            setTimeout delays -- 40 characters meant to take 1.4s arrived in 0.4s, so the
+            typing crossed two or three frames and read as the text simply appearing. Driving
+            it from here makes the pace exact: TYPED_FRAMES frames, whatever the line length.
+            """
+            nonlocal frame
+            step = math.ceil(len(line) / TYPED_FRAMES)
+            for end in range(step, len(line) + step, step):
+                page.evaluate(f"setComposer({json.dumps(line[:end])})")
+                page.screenshot(path=str(FRAMES / f"frame_{frame:04d}.png"))
+                frame += 1
+
         capture(1.2)  # the conditions, before anything is said
         for line in SCRIPT:
-            page.evaluate(f"{{ typeInto({json.dumps(line)}); }}")
-            capture(len(line) * 0.034 + 0.45)
+            type_line(line)
+            capture(0.6)  # a beat with the line sitting there, before it is sent
             page.evaluate(f"commit({json.dumps(line)})")
             capture(0.4)
             # the decision itself is faster than one frame, and screenshotting while the
@@ -110,10 +127,7 @@ def main() -> None:
         page.goto(URL)
         page.wait_for_function("document.getElementById('conditions').children.length > 0")
         for line in SCRIPT[:2]:
-            page.evaluate(f"{{ typeInto({json.dumps(line)}, 0); }}")
-            page.wait_for_function(
-                f"document.getElementById('message').value.length === {len(line)}"
-            )
+            page.evaluate(f"setComposer({json.dumps(line)})")
             page.evaluate(f"commit({json.dumps(line)})")
             time.sleep(0.3)
             page.evaluate(f"decideTurn({json.dumps(line)})")

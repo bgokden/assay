@@ -114,8 +114,8 @@
     background: none; border: 1px solid var(--line); color: var(--dim);
     border-radius: 6px; padding: 5px 10px; cursor: pointer; font-size: 12px;
   }
-  .composer input.typing { border-color: var(--human); }
-  .composer input.typing::after { content: "|"; }
+  .composer input:focus { outline: none; border-color: var(--human); }
+  .composer input.typing { border-color: var(--human); caret-color: var(--human); }
   .tools { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
   .error { color: var(--bad); font-size: 13px; margin-top: 10px; }
 </style>
@@ -212,6 +212,16 @@ function addUser(text) {
        </div>
      </div>`);
   window.scrollTo(0, document.body.scrollHeight);
+}
+
+/** Put a partial line in the composer. A recorder drives this one frame at a time, because
+    setTimeout pacing is not honoured reliably while a browser is being screenshotted. */
+function setComposer(text) {
+  const input = document.getElementById("message");
+  input.value = text;
+  input.classList.add("typing");
+  input.focus();
+  input.setSelectionRange(text.length, text.length);
 }
 
 /** Type into the composer a character at a time, the way the person would. */
