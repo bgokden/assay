@@ -131,6 +131,40 @@ so the readout and the evidence head come from the same forward pass, and RadixA
 a state prefix across questions. Check a deployment with `verify_against_local` before trusting
 it -- SGLang's response layout is not pinned by a published schema.
 
+## Serving through llama.cpp
+
+The decoder tier runs on a laptop this way, CPU only. Convert the merged weights once, then
+start the server with the embedding flags -- the evidence head needs the hidden state at the
+readout position, which is what last-token pooling returns:
+
+```bash
+python -m assay.publish --run runs/assay-0.6b --repo local/assay --dry-run   # merged weights
+python convert_hf_to_gguf.py runs/assay-0.6b/hub --outfile assay-0.6b.gguf --outtype f16
+llama-server -m assay-0.6b.gguf --port 8081 -c 4096 \
+    --embeddings --pooling last --embd-normalize -1
+```
+
+```python
+from assay.backends.llamacpp import LlamaCppClient, verify_against_local
+
+client = LlamaCppClient("http://127.0.0.1:8081", "Berk/assay-0.6b")
+client.answer(state, questions)
+verify_against_local("http://127.0.0.1:8081", "Berk/assay-0.6b", state, questions)
+```
+
+`/completion` with `n_probs` gives the option-label distribution and `/embeddings` gives the
+evidence head its input; the fitted temperature and the conformal thresholds are applied
+client-side, exactly as with transformers. Checked on assay-0.6b (f16 GGUF, CPU) against local
+transformers: probabilities within 2.8e-4, evidence within 2.6e-4, hidden state cosine
+similarity 1.000000.
+
+Two things to know. llama.cpp cannot pack questions into one sequence, so each question is a
+request; they share the state prefix and `cache_prompt` reuses it, so the state is encoded once
+for the first question. And `verify_against_local` is not optional ceremony: a GGUF is a
+converted, usually quantised copy of the weights, and conversion is where a deployment goes
+quietly wrong. Without `--embeddings --pooling last --embd-normalize -1` there is no evidence
+score; pass `evidence=False` to answer from the readout alone.
+
 ## API
 
 Every route below is under `/v1` and takes JSON. Answers carry `probabilities`, `confidence`

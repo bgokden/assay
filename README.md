@@ -228,6 +228,9 @@ uv run ruff check . && uv run ruff format --check .        # lint and formatting
 uv run python -m assay.server --model Berk/assay-4b       # POST /v1/decide on :8000
 ```
 
+`assay.backends.llamacpp` runs the decoder tier on llama.cpp, which is how it runs on a laptop:
+convert the merged weights to GGUF, start `llama-server` with `--embeddings --pooling last`,
+and both the readout and the evidence head work (checked against local transformers to 2.8e-4).
 `assay.backends.sglang` serves the decoder tier through an SGLang deployment instead of local
 transformers: `/generate` returns `token_ids_logprob` and `return_hidden_states` in one
 request, so the readout and the evidence head both come from one forward pass, and
