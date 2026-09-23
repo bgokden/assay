@@ -64,6 +64,10 @@ probabilities it decided on, and how long it took. It is the clearest demonstrat
 this is for -- a decision lands in tens of milliseconds, and an escalation is a decision too.
 The reply text is a template the outcome selects; the model generates none of it.
 
+`scripts/record_chat.py` records that page as a video against a running server, for when a
+decision arriving in 35 ms is easier to show than to describe. It needs playwright and ffmpeg,
+which this project does not depend on, so run it with a python that has them.
+
 ## Choosing a runtime
 
 Four ways to run the same model. They differ in what they can return, not in what they answer:
