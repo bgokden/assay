@@ -17,6 +17,22 @@ so a request with twenty questions costs about the same as a request with one.
 Six models, 149M to 27B, are on the Hub as the
 [Assay collection](https://huggingface.co/collections/Berk/assay-calibrated-typed-decisions-6ab2fcb2b7eea0b7aaf785ab).
 
+## Three ways in
+
+```bash
+# 1. Decide, in process
+uv run python examples/quickstart.py
+
+# 2. Serve it, and open http://127.0.0.1:8000/ to try it in a browser
+uv run python -m assay.server --model Berk/assay-4b --agents examples/agents
+
+# 3. Train one on your own labels: data, training, calibration, conformal fitting, evaluation
+uv run python -m assay.pipeline --config examples/pipelines/support-decoder.json
+```
+
+The third is the point of the project. The published models are a worked example of it, not
+the product -- your taxonomy is not mine, and a decision model is only useful on your labels.
+
 **Documentation:** [models](docs/models.md) (every published model side by side) |
 [serving](docs/serving.md) (deployment, tuning, metrics, the full API) |
 [agents](docs/agents.md) (decision graphs and the actions they take) |
