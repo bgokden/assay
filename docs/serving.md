@@ -202,6 +202,38 @@ CMD ["uv", "run", "python", "-m", "assay.server", "--model", "Berk/assay-4b", "-
 
 Mount a volume at `/models` so the weights are downloaded once, and pass `--gpus all`.
 
+### Without a GPU
+
+The decoder tier runs on a CPU. It is slower -- `assay-0.6b` answers three questions in about
+half a second on two cores, against 22 ms on a GPU -- but it needs no CUDA, and the image is
+about a tenth of the size, because the dependencies that make the project heavy
+(`bitsandbytes`, `flash-linear-attention`, `datasets`, `peft`, `accelerate`) are there for
+quantized bases, hybrid backbones and training. A serving process touches none of them, so
+install `assay` with `--no-deps` over a minimal CPU set:
+
+```dockerfile
+FROM python:3.12-slim
+RUN apt-get update && apt-get install -y --no-install-recommends git && apt-get clean
+RUN useradd -m -u 1000 user
+USER user
+ENV PATH=/home/user/.local/bin:$PATH HF_HOME=/home/user/.cache/huggingface OMP_NUM_THREADS=2
+WORKDIR /home/user/app
+RUN pip install --no-cache-dir --user torch --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir --user "transformers>=4.51" "numpy>=2.0" "fastapi>=0.115" \
+      "uvicorn>=0.30" "pydantic>=2.0" "huggingface-hub>=0.30" safetensors
+RUN pip install --no-cache-dir --user --no-deps "assay @ git+https://github.com/bgokden/assay@main"
+COPY --chown=user agents ./agents
+RUN python -c "from huggingface_hub import snapshot_download; snapshot_download('Berk/assay-0.6b')"
+EXPOSE 7860
+CMD ["python", "-m", "assay.server", "--model", "Berk/assay-0.6b", "--agents", "agents", \
+     "--host", "0.0.0.0", "--port", "7860", "--device", "cpu"]
+```
+
+Baking the weights in with `snapshot_download` at build time means a cold container answers
+immediately instead of pulling 1.2 GB on somebody's first request. Port 7860 and this layout
+are what a Hugging Face Docker Space expects, so the same file runs there unchanged --
+although Docker Spaces need a PRO account; only static Spaces are free.
+
 ## Serving through SGLang
 
 `assay.backends.sglang` runs the decoder tier on an SGLang deployment instead of local
