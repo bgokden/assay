@@ -35,6 +35,7 @@ def load_model(
             spec[len("base:") :],
             lora_r=None,
             dtype=dtype,
+            device=device,
             quantization=quantization,
             max_memory=max_memory,
         )
@@ -52,7 +53,10 @@ def load_model(
         from assay.compiled import load_any
 
         return load_any(path, device=device)
-    return AssayModel.from_pretrained(path, dtype=dtype)
+    # the decoder tier was the one tier that dropped `device`, so a caller asking for cpu got
+    # a model on cuda -- and on a machine without one, an unexplained "No CUDA GPUs are
+    # available" from inside a loader it had just told to use the cpu
+    return AssayModel.from_pretrained(path, dtype=dtype, device=device)
 
 
 def predict(

@@ -137,3 +137,25 @@ def test_content_term_roundtrip(content_model, tmp_path):
             )
     with torch.no_grad():
         content_model.content_proj.weight.zero_()
+
+
+def test_load_model_honours_a_cpu_request(saved_model, monkeypatch):
+    """The decoder tier used to drop `device`, so a caller asking for cpu got cuda -- and on a
+    machine without a GPU, an unexplained "No CUDA GPUs are available" from inside a loader it
+    had just told to use the cpu. That is the only tier where this was wrong, and it is the
+    tier every published decoder model uses."""
+    import torch
+
+    from assay.evaluate import load_model
+
+    captured = {}
+    original = AssayModel.from_pretrained
+
+    def spy(path, *args, **kwargs):
+        captured["device"] = kwargs.get("device")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(AssayModel, "from_pretrained", staticmethod(spy))
+    model = load_model(saved_model, dtype=torch.float32, device="cpu")
+    assert captured["device"] == "cpu"
+    assert next(model._backbone().parameters()).device.type == "cpu"
