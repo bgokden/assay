@@ -2,6 +2,12 @@
 
 Calibrated typed decisions from one forward pass of a language model. No text is generated.
 
+![Ten questions about one contract clause, answered in a single forward pass, 72 ms](docs/images/decide.png)
+
+*Ten questions about one contract clause, one forward pass, 72 ms. The clause never states a
+governing law, so `governing_law` answers "the clause does not say" at 0.842 instead of
+picking a jurisdiction; `liability_risk` hands over rather than guessing.*
+
 You send a **state** (text, an object, or a list) and a set of named **typed questions**.
 Assay returns a probability distribution over the options of every question, a confidence,
 and an **evidence** score that says whether the state contains what is needed to answer.

@@ -175,12 +175,14 @@ def write_model_card(run: str, repo: str, base: str, out_path: str, merged: bool
 license: apache-2.0
 base_model: {base}
 library_name: transformers
-pipeline_tag: text-classification
+pipeline_tag: zero-shot-classification
 tags:
   - assay
-  - calibrated
   - decision-model
-  - zero-shot-classification
+  - calibrated
+  - conformal-prediction
+  - text-classification
+  - structured-output
 language:
   - en
 ---

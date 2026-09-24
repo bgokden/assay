@@ -103,12 +103,17 @@ def write_card(run: str, repo: str, out_path: str) -> None:
     card = f"""---
 license: apache-2.0
 base_model: {backbone}
-language: en
+library_name: transformers
+pipeline_tag: zero-shot-classification
 tags:
-- text-classification
-- calibration
-- decision-model
 - assay
+- decision-model
+- calibrated
+- conformal-prediction
+- text-classification
+- cpu
+language:
+- en
 ---
 
 # {repo.split("/")[-1]}
