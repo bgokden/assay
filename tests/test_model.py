@@ -159,3 +159,15 @@ def test_load_model_honours_a_cpu_request(saved_model, monkeypatch):
     model = load_model(saved_model, dtype=torch.float32, device="cpu")
     assert captured["device"] == "cpu"
     assert next(model._backbone().parameters()).device.type == "cpu"
+
+
+def test_adapter_at_the_repository_root_resolves_to_the_repository():
+    """An adapter-only repository is a PEFT repository, and the Hub counts its downloads from
+    `adapter_config.json` at the root exactly. Published under `adapter/` it reports no
+    downloads at all, forever -- which is what assay-8b and assay-27b did until they were
+    restructured. `adapter: "."` is how the config records a root adapter."""
+    from assay.model import adapter_source
+
+    assert adapter_source("/models/assay-8b", ".") == "/models/assay-8b"
+    assert adapter_source("/models/assay-8b", "") == "/models/assay-8b"
+    assert adapter_source("/models/run", "adapter") == "/models/run/adapter"

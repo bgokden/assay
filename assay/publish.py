@@ -122,7 +122,7 @@ def write_model_card(run: str, repo: str, base: str, out_path: str, merged: bool
         load_line = "The merged weights load with transformers like any Qwen checkpoint."
     else:
         weights_line = (
-            f"this repository holds the adapter (`adapter/`) and the evidence head; the base is loaded "
+            f"this repository holds the LoRA adapter and the evidence head; the base is loaded "
             f"from `{base}`" + (f" in {quant} (bitsandbytes)" if quant else "") + " at load time."
         )
         load_line = "Loading downloads the base model separately; the 4-bit base needs about 15 GB of GPU memory."
@@ -174,7 +174,7 @@ def write_model_card(run: str, repo: str, base: str, out_path: str, merged: bool
     card = f"""---
 license: apache-2.0
 base_model: {base}
-library_name: transformers
+library_name: {"transformers" if merged else "peft"}
 pipeline_tag: zero-shot-classification
 tags:
   - assay
@@ -344,7 +344,17 @@ def main() -> None:
     else:
         hub_config = dict(config)
     if config.get("adapter"):
-        shutil.copytree(os.path.join(args.run, config["adapter"]), os.path.join(staging, "adapter"))
+        source = os.path.join(args.run, config["adapter"])
+        if merged:
+            shutil.copytree(source, os.path.join(staging, "adapter"))
+        else:
+            # An adapter-only repository is a PEFT repository, and the Hub counts a PEFT
+            # repository's downloads from `adapter_config.json` at the root exactly. Publish
+            # it under `adapter/` and the repository reports no downloads at all, forever.
+            # At the root it also loads with a plain PeftModel.from_pretrained(repo).
+            for name in os.listdir(source):
+                shutil.copy(os.path.join(source, name), os.path.join(staging, name))
+            hub_config["adapter"] = "."
     shutil.copy(os.path.join(args.run, HEAD_FILE), os.path.join(staging, HEAD_FILE))
     with open(os.path.join(staging, CONFIG_FILE), "w") as f:
         json.dump(hub_config, f, indent=2)

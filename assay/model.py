@@ -29,6 +29,17 @@ class ModelOutput:
     evidence_logits: torch.Tensor  # (Q,)
 
 
+def adapter_source(path: str, adapter: str) -> str:
+    """Where the LoRA adapter lives, given the path recorded in the config.
+
+    "." means the repository root, which is where PEFT and the Hub both expect it. The Hub
+    counts a model's downloads from a query file, and for a peft repository that file is
+    `adapter_config.json` at the root exactly -- an adapter under `adapter/` is never
+    counted, so such a repository reports no downloads at all rather than reporting few.
+    """
+    return path if adapter in (".", "") else os.path.join(path, adapter)
+
+
 class AssayModel(nn.Module):
     def __init__(
         self,
@@ -162,7 +173,7 @@ class AssayModel(nn.Module):
         if config.get("adapter"):
             from peft import PeftModel
 
-            lm = PeftModel.from_pretrained(lm, os.path.join(path, config["adapter"]))
+            lm = PeftModel.from_pretrained(lm, adapter_source(path, config["adapter"]))
         model = cls(
             lm,
             tokenizer,
